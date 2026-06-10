@@ -9,7 +9,7 @@ export function LogConsole({
   logs,
   cursor: _cursor,
   id,
-  maxHeight = '30rem',
+  maxHeight = '20rem',
 }: {
   logs: LogEntry[]
   cursor: number
@@ -28,7 +28,7 @@ export function LogConsole({
       id={id}
       ref={logBoxRef}
       style={{ maxHeight }}
-      className="overflow-auto whitespace-pre-wrap rounded-3xl border border-border/70 bg-black/30 p-4 text-xs leading-6 text-text"
+      className="overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-3 text-xs leading-5 text-text"
     >
       {logs.length
         ? logs.map((entry) => `${entry.step}: ${entry.line}`).join('\n')

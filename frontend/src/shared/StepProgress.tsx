@@ -22,7 +22,7 @@ export function StepProgress({ steps, activeKey, stepStatuses }: StepProgressPro
           <span key={step.key} className="flex items-center">
             <span
               className={[
-                'flex items-center gap-2 px-3 py-1.5 text-sm transition',
+                'flex items-center gap-1.5 px-2 py-1 text-sm transition',
                 isActive ? 'text-text' : 'text-muted',
               ].join(' ')}
               aria-current={isActive ? 'step' : undefined}
@@ -32,7 +32,7 @@ export function StepProgress({ steps, activeKey, stepStatuses }: StepProgressPro
             </span>
             {!isLast && (
               <span
-                className="h-px w-6 bg-border/60"
+                className="mx-1 h-px w-4 bg-border"
                 aria-hidden="true"
               />
             )}

@@ -15,7 +15,6 @@ export function Disclosure({
     <details
       open={open}
       onToggle={() => {
-        // Sync state with native details toggle
         const el = document.activeElement?.closest('details')
         if (el) setOpen(el.open)
       }}
@@ -34,11 +33,11 @@ export function Disclosure({
             setOpen((prev) => !prev)
           }
         }}
-        className="flex cursor-pointer items-center gap-2 text-sm font-medium text-muted transition hover:text-text"
+        className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-muted transition hover:text-text"
       >
         <span
           className={[
-            'inline-block h-4 w-4 transition-transform',
+            'inline-block text-sm transition-transform',
             open ? 'rotate-90' : '',
           ].join(' ')}
           aria-hidden="true"
@@ -47,7 +46,7 @@ export function Disclosure({
         </span>
         {summary}
       </summary>
-      <div className="mt-3">{children}</div>
+      <div className="mt-2">{children}</div>
     </details>
   )
 }

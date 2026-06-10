@@ -192,7 +192,7 @@ export default function App() {
 
   // Render the appropriate create phase
   function renderCreatePhase() {
-    // If still in render phase (not yet bootstrapping)
+    // During render/backup (before bootstrap starts)
     if (renderStage === 'idle' || renderStage === 'rendering' || renderStage === 'backing-up') {
       return (
         <ConfigureStep
@@ -203,7 +203,16 @@ export default function App() {
       )
     }
 
-    // After render is done, show the bootstrap flow phases
+    // Render/backup done, bootstrap about to start (or starting)
+    if (renderStage === 'done' && !createState.runId && !createState.terminal) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <p className="text-sm text-muted">Starting bootstrap…</p>
+          {renderedDir && <details className="w-full max-w-lg"><summary className="cursor-pointer text-xs text-muted">Show render logs</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">{renderLogs.join('\n')}</pre></details>}
+        </div>
+      )
+    }
+
     const phase = createState.phase
 
     if (showValidate && phase === 'finish') {
@@ -217,38 +226,25 @@ export default function App() {
 
     switch (phase) {
       case 'configure':
+        // Should not normally reach here after render done (auto-start kicks in)
+        // But if render produced a result without auto-starting, show it
         return (
-          <div className="grid gap-6">
+          <div className="grid gap-4">
             {result && (
-              <section className="rounded-[1.75rem] border border-accent/30 bg-accent/10 p-5">
-                <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">
-                  Checkpoint #1 sealed
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-text">Ready to bootstrap.</h2>
-                <p className="mt-3 text-sm leading-6 text-muted">
-                  Download the checkpoint #1 backup and keep the passphrase safe.
-                </p>
-                {renderedDir && (
-                  <p className="mt-3 text-sm text-muted">Rendered env dir: {renderedDir}</p>
-                )}
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={handleStartBootstrap}
-                    className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5"
-                  >
+              <div className="rounded-lg border border-accent/30 bg-accent/10 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-accentSoft">Checkpoint #1 sealed</p>
+                <h2 className="mt-1 text-lg font-semibold text-text">Ready to bootstrap.</h2>
+                <p className="mt-1 text-sm text-muted">Download the checkpoint #1 backup and keep the passphrase safe.</p>
+                <div className="mt-3">
+                  <button type="button" onClick={handleStartBootstrap} className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90">
                     Run bootstrap
                   </button>
                 </div>
-              </section>
+              </div>
             )}
-            <details className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-              <summary className="cursor-pointer text-sm font-medium text-muted transition hover:text-text">
-                Show render logs
-              </summary>
-              <pre className="mt-3 max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-3xl border border-border/70 bg-black/30 p-4 text-xs leading-6 text-text">
-                {renderLogs.length ? renderLogs.join('\n') : 'Waiting for render logs...'}
-              </pre>
+            <details className="rounded-lg border border-border bg-panel p-3">
+              <summary className="cursor-pointer text-sm font-medium text-muted transition hover:text-text">Show render logs</summary>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">{renderLogs.length ? renderLogs.join('\n') : 'Waiting for render logs...'}</pre>
             </details>
           </div>
         )

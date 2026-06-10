@@ -1,4 +1,4 @@
-import { type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
+import { type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useState } from 'react'
 
 export function Field(props: {
   label: string
@@ -6,8 +6,8 @@ export function Field(props: {
   children: ReactNode
 }) {
   return (
-    <label className="flex flex-col gap-2">
-      <span className="text-xs uppercase tracking-[0.28em] text-muted">{props.label}</span>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs uppercase tracking-[0.2em] text-muted">{props.label}</span>
       {props.children}
       {props.hint ? <span className="text-xs leading-5 text-muted">{props.hint}</span> : null}
     </label>
@@ -19,8 +19,8 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={[
-        'rounded-2xl border border-border/80 bg-white/5 px-4 py-3 text-sm text-text outline-none',
-        'transition focus:border-accent/50 focus:bg-white/8 focus:ring-2 focus:ring-accent/20',
+        'rounded-lg border border-border bg-panel px-3 py-2 text-sm text-text outline-none',
+        'transition focus:border-accent/50 focus:ring-1 focus:ring-accent/20',
         props.className ?? '',
       ].join(' ')}
     />
@@ -32,8 +32,8 @@ export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
     <textarea
       {...props}
       className={[
-        'min-h-28 rounded-2xl border border-border/80 bg-white/5 px-4 py-3 text-sm text-text outline-none',
-        'transition focus:border-accent/50 focus:bg-white/8 focus:ring-2 focus:ring-accent/20',
+        'min-h-24 rounded-lg border border-border bg-panel px-3 py-2 text-sm text-text outline-none',
+        'transition focus:border-accent/50 focus:ring-1 focus:ring-accent/20',
         props.className ?? '',
       ].join(' ')}
     />
@@ -47,15 +47,15 @@ export function SectionCard(props: {
   children: ReactNode
 }) {
   return (
-    <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-      <div className="mb-5">
-        <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">
+    <section className="rounded-lg border border-border bg-panel p-4">
+      <div className="mb-4">
+        <p className="text-xs uppercase tracking-[0.2em] text-muted">
           {props.eyebrow ?? 'Create new'}
         </p>
-        <h2 className="mt-2 text-xl font-semibold text-text">{props.title}</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{props.description}</p>
+        <h2 className="mt-1 text-lg font-semibold text-text">{props.title}</h2>
+        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted">{props.description}</p>
       </div>
-      <div className="grid gap-4">{props.children}</div>
+      <div className="grid gap-3">{props.children}</div>
     </section>
   )
 }
@@ -65,14 +65,14 @@ export function ArtifactDownload(props: {
   label?: string
 }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-white/5 p-3">
+    <div className="rounded-lg border border-border bg-panel/60 p-3">
       <span className="text-muted">{props.label ?? 'Artifact'}</span>
       <div className="mt-1 flex items-center gap-3">
         <span className="font-medium text-text">{props.artifactName}</span>
         <a
           href={`/api/backup/artifact/${encodeURIComponent(props.artifactName)}`}
           download={props.artifactName}
-          className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accentSoft transition hover:bg-accent/20"
+          className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accentSoft transition hover:bg-accent/20"
         >
           Download
         </a>
@@ -95,37 +95,17 @@ async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
 }
 
-function OsInstruction(props: {
-  os: string
-  children: ReactNode
-  command?: string
-  onCopy?: () => void
-}) {
-  return (
-    <div className="rounded-3xl border border-border/70 bg-black/30 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-accentSoft">{props.os}</p>
-          <div className="mt-2 text-sm text-text">{props.children}</div>
-        </div>
-        {props.command && props.onCopy && (
-          <button
-            type="button"
-            onClick={props.onCopy}
-            className="rounded-2xl border border-border/70 bg-white/5 px-4 py-2 text-xs font-semibold text-text transition hover:bg-white/10"
-          >
-            Copy
-          </button>
-        )}
-      </div>
-      {props.command && (
-        <pre className="mt-3 overflow-auto rounded-2xl border border-border/70 bg-slate-950/80 p-3 text-xs leading-6 text-text">
-          {props.command}
-        </pre>
-      )}
-    </div>
-  )
+// Detect the current OS for auto-expand
+function detectOS(): 'windows' | 'macos' | 'linux' | 'firefox' | 'unknown' {
+  const ua = navigator.userAgent
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? ''
+  if (/Win(dows)?/i.test(ua) || /Win/i.test(platform)) return 'windows'
+  if (/Mac/i.test(ua) || /Mac/i.test(platform)) return 'macos'
+  if (/Linux/i.test(ua) || /Linux/i.test(platform)) return 'linux'
+  return 'unknown'
 }
+
+type OsKey = 'windows' | 'macos' | 'debian' | 'fedora' | 'firefox'
 
 export function CaInstall(props: {
   payload: CaCertPayload
@@ -133,12 +113,22 @@ export function CaInstall(props: {
 }) {
   const { payload } = props
   const onCopyError = props.onCopyError ?? (() => {})
+  const detected = detectOS()
+
+  // Map detected OS to which sections should be open by default
+  const osMap: Record<string, OsKey[]> = {
+    windows: ['windows', 'firefox'],
+    macos: ['macos', 'firefox'],
+    linux: ['debian', 'fedora', 'firefox'],
+  }
+  const autoOpen = new Set(osMap[detected] ?? [])
 
   return (
-    <div className="grid gap-3">
-      {/* Windows */}
-      <OsInstruction
+    <div className="grid gap-2">
+      <CaOsSection
         os="Windows"
+        osKey="windows"
+        defaultOpen={autoOpen.has('windows')}
         command={`certutil -addstore -f "Root" ${payload.filename}`}
         onCopy={() =>
           copyText(`certutil -addstore -f "Root" ${payload.filename}`).catch(() =>
@@ -154,11 +144,12 @@ export function CaInstall(props: {
           &quot;Place all certificates in the following store&quot; → Trusted Root Certification
           Authorities → Finish. Restart the browser.
         </p>
-      </OsInstruction>
+      </CaOsSection>
 
-      {/* macOS */}
-      <OsInstruction
+      <CaOsSection
         os="macOS"
+        osKey="macos"
+        defaultOpen={autoOpen.has('macos')}
         command={`sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/${payload.filename}`}
         onCopy={() =>
           copyText(
@@ -170,11 +161,12 @@ export function CaInstall(props: {
         <p className="mt-1">
           Or GUI: open Keychain Access → System → drag {payload.filename} in → double-click → Always Trust. Restart the browser.
         </p>
-      </OsInstruction>
+      </CaOsSection>
 
-      {/* Debian/Ubuntu */}
-      <OsInstruction
+      <CaOsSection
         os="Debian/Ubuntu"
+        osKey="debian"
+        defaultOpen={autoOpen.has('debian')}
         command={`sudo cp ${payload.filename} /usr/local/share/ca-certificates/ && sudo update-ca-certificates`}
         onCopy={() =>
           copyText(
@@ -185,11 +177,12 @@ export function CaInstall(props: {
         <p>
           Copy the CA into the system trust store, update certificates, then restart the browser.
         </p>
-      </OsInstruction>
+      </CaOsSection>
 
-      {/* Fedora/RHEL */}
-      <OsInstruction
+      <CaOsSection
         os="Fedora/RHEL"
+        osKey="fedora"
+        defaultOpen={autoOpen.has('fedora')}
         command={`sudo cp ${payload.filename} /etc/pki/ca-trust/source/anchors/ && sudo update-ca-trust`}
         onCopy={() =>
           copyText(
@@ -200,36 +193,73 @@ export function CaInstall(props: {
         <p>
           Copy the CA into the CA trust source, update the trust database, then restart the browser.
         </p>
-      </OsInstruction>
+      </CaOsSection>
 
-      {/* Firefox */}
-      <div className="rounded-3xl border border-border/70 bg-black/30 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-accentSoft">
-              Firefox (own store — recommended)
-            </p>
-            <p className="mt-2 text-sm text-text">
-              Firefox maintains its own certificate store, separate from the OS.
-              Import here to trust the CA only in Firefox, bounding blast radius.
-            </p>
-          </div>
-        </div>
-        <p className="mt-3 text-sm text-text">
+      <CaOsSection
+        os="Firefox (own store — recommended)"
+        osKey="firefox"
+        defaultOpen={autoOpen.has('firefox')}
+      >
+        <p>
+          Firefox maintains its own certificate store, separate from the OS.
+          Import here to trust the CA only in Firefox, bounding blast radius.
+        </p>
+        <p className="mt-2 text-sm text-text">
           Settings → Privacy &amp; Security → Certificates → View Certificates →
           Authorities → Import → select{' '}
           <code className="rounded bg-white/10 px-1 text-xs">{payload.filename}</code> → check
           &quot;Trust this CA to identify websites&quot;.
         </p>
-        <p className="mt-2 text-sm text-muted">
+        <p className="mt-1.5 text-sm text-muted">
           Note: Firefox on Windows uses its own store — follow this same import path.
         </p>
-      </div>
+      </CaOsSection>
 
-      <p className="text-sm leading-6 text-muted">
+      <p className="text-sm leading-5 text-muted">
         Restart your browser after importing the certificate. To remove later, delete the
         &quot;DMF Local CA&quot; entry from your certificate store.
       </p>
     </div>
+  )
+}
+
+function CaOsSection(props: {
+  os: string
+  osKey: OsKey
+  defaultOpen?: boolean
+  children: ReactNode
+  command?: string
+  onCopy?: () => void
+}) {
+  const [open, setOpen] = useState(props.defaultOpen ?? false)
+  return (
+    <details open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)} className="group rounded-lg border border-border bg-panel/40">
+      <summary
+        className="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted transition hover:text-text"
+        onClick={(e) => e.preventDefault()}
+      >
+        <span>{props.os}</span>
+        <span className="text-xs transition-transform group-open:rotate-90" aria-hidden="true">▸</span>
+      </summary>
+      <div className="px-3 pb-3">
+        {props.children}
+        {props.command && props.onCopy && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between gap-2">
+              <pre className="overflow-auto rounded-md border border-border bg-bg/80 p-2 text-xs leading-5 text-text">
+                {props.command}
+              </pre>
+              <button
+                type="button"
+                onClick={props.onCopy}
+                className="shrink-0 rounded-md border border-border bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-text transition hover:bg-white/10"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
   )
 }
