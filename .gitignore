@@ -101,3 +101,6 @@ uv.lock
 
 # build-bundle.sh appliance tarball (build artifact, never commit)
 dmf-init-bundle-*.tar.gz
+
+# local AI-agent session state (qwen CLI)
+.qwen/
