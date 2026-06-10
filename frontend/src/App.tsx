@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Shell } from './app/Shell'
+import { Shell, type RailSubItem } from './app/Shell'
 import { ConfigureStep, type OperatorForm, type SandboxForm } from './create/ConfigureStep'
-import { InstallProgress } from './create/InstallProgress'
+import { InstallProgress, stepDisplayName } from './create/InstallProgress'
 import { ConnectStep } from './create/ConnectStep'
 import { FinishStep } from './create/FinishStep'
 import { ValidateStep } from './create/ValidateStep'
@@ -94,6 +94,7 @@ async function streamRender(
 
 export default function App() {
   const [mode, setMode] = useState<'create' | 'manage'>('create')
+  const [configPage, setConfigPage] = useState(0)
   const [renderLogs, setRenderLogs] = useState<string[]>([])
   const [renderBusy, setRenderBusy] = useState(false)
   const [renderStage, setRenderStage] = useState<'idle' | 'rendering' | 'backing-up' | 'done'>('idle')
@@ -197,6 +198,7 @@ export default function App() {
       return (
         <ConfigureStep
           onSubmit={handleSubmit}
+          onPageChange={setConfigPage}
           busy={renderBusy}
           error={renderError}
         />
@@ -308,11 +310,37 @@ export default function App() {
     }
   }
 
+  // Sidebar sub-items for the active rail phase.
+  const PAUSE_IDS = ['workstation', 'passkey']
+  const wizardPages = ['Identity', 'Target node', 'Security', 'Review & Deploy']
+  const subItems: Record<string, RailSubItem[]> = {
+    configure: wizardPages.map((label, i) => ({
+      key: `cfg-${i}`,
+      label,
+      status: i < configPage ? 'ok' : i === configPage ? 'running' : 'pending',
+    })),
+    installing: createState.steps
+      .filter((s) => !PAUSE_IDS.includes(s))
+      .map((s) => ({
+        key: s,
+        label: stepDisplayName(s),
+        status: createState.stepStatuses[s] ?? 'pending',
+      })),
+    connect: createState.steps
+      .filter((s) => PAUSE_IDS.includes(s))
+      .map((s) => ({
+        key: s,
+        label: stepDisplayName(s),
+        status: createState.stepStatuses[s] ?? 'pending',
+      })),
+  }
+
   return (
     <Shell
       mode={mode}
       onModeChange={setMode}
       createPhase={mode === 'create' ? createState.phase : undefined}
+      subItems={mode === 'create' ? subItems : undefined}
       envId={renderedEnvId}
     >
       {mode === 'create' ? renderCreatePhase() : <ManageView />}
