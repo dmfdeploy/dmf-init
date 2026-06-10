@@ -39,6 +39,7 @@ from .bootstrap_steps import (
     BootstrapContext,
     build_bootstrap_steps,
     build_ca_cert_payload,
+    build_hosts_map_payload,
     build_passkey_payload,
     ensure_runtime_repos,
     make_checkpoint_fn,
@@ -70,6 +71,7 @@ from .orchestrate import (
     run_worker,
     stream_events,
 )
+from .package import PackageError, build_package
 from .repos import RepoFetchRequest
 from .settings import Settings, load_settings
 from .tls import ensure_self_signed
@@ -356,6 +358,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.bootstrap_runs = {}
     app.state.bootstrap_lock = threading.Lock()
     app.state.manage_sessions = {}
+    # env_id -> {downloaded_at, sha256, filename}; recorded only when the
+    # package stream ran to completion (honest "we sent all the bytes").
+    app.state.package_downloads = {}
     # P0-1: Active operation guard — keyed by env_id, prevents concurrent ops on same env
     app.state.active_runs: dict[str, str] = {}  # env_id -> run_id
     app.add_middleware(LaunchTokenMiddleware)
@@ -741,6 +746,88 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/octet-stream",
             headers={"Cache-Control": "no-store"},
         )
+
+    # Recovery package: one zip with everything the operator must keep
+    # (checkpoint #3 backup + CA cert + README + sha256 MANIFEST).
+    @app.get(
+        "/api/package/{env_id}",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def download_package(env_id: str) -> StreamingResponse:
+        from .backup import validate_env_id
+        try:
+            validate_env_id(env_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+        try:
+            ctx = BootstrapContext.from_data_root(settings.data_root, env_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+        # Cheap artifact check first — no point in SSHing for CA/hosts when
+        # there is nothing to package.
+        from .package import find_latest_artifact
+        try:
+            find_latest_artifact(settings.data_root, env_id)
+        except PackageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+        # Payload builders degrade gracefully (present=False / empty entries)
+        # if the node is unreachable; the README states what is missing.
+        ca_payload = build_ca_cert_payload(ctx)
+        hosts_payload = build_hosts_map_payload(ctx)
+        try:
+            result = build_package(settings.data_root, env_id, ca_payload, hosts_payload)
+        except PackageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+
+        def _stream():
+            chunk = 1 << 16
+            for offset in range(0, len(result.data), chunk):
+                yield result.data[offset : offset + chunk]
+            # Reached only if every byte was handed to the client; an aborted
+            # download cancels the generator and never records completion.
+            with app.state.bootstrap_lock:
+                app.state.package_downloads[env_id] = {
+                    "downloaded_at": time.time(),
+                    "sha256": result.sha256,
+                    "filename": result.filename,
+                }
+
+        return StreamingResponse(
+            _stream(),
+            media_type="application/zip",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{result.filename}"',
+                "Content-Length": str(len(result.data)),
+                "X-Package-Sha256": result.sha256,
+            },
+        )
+
+    @app.get(
+        "/api/package/{env_id}/status",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def package_status(env_id: str) -> JSONResponse:
+        from .backup import validate_env_id
+        try:
+            validate_env_id(env_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+        with app.state.bootstrap_lock:
+            record = app.state.package_downloads.get(env_id)
+        return JSONResponse(record or {"downloaded_at": None})
 
     # Change 4: CA certificate endpoint (session-protected, available post-bootstrap)
     @app.get(
