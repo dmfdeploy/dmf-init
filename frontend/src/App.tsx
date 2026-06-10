@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Shell, type RailSubItem } from './app/Shell'
 import { ConfigureStep, type OperatorForm, type SandboxForm } from './create/ConfigureStep'
 import { InstallProgress, stepDisplayName } from './create/InstallProgress'
@@ -100,9 +100,7 @@ export default function App() {
   const [renderBusy, setRenderBusy] = useState(false)
   const [renderStage, setRenderStage] = useState<'idle' | 'rendering' | 'backing-up' | 'done'>('idle')
   const [renderError, setRenderError] = useState<string | null>(null)
-  const [result, setResult] = useState<CreateNewBackupResponse | null>(null)
   const [renderedEnvId, setRenderedEnvId] = useState<string | null>(null)
-  const [renderedDir, setRenderedDir] = useState<string | null>(null)
   const [renderPassphrase, setRenderPassphrase] = useState<string | null>(null)
 
   // Create flow hook
@@ -122,9 +120,8 @@ export default function App() {
     setRenderBusy(true)
     setRenderError(null)
     setRenderLogs([])
-    setResult(null)
     setRenderedEnvId(null)
-    setRenderedDir(null)
+    bootstrapKickoff.current = false
 
     try {
       setRenderStage('rendering')
@@ -147,16 +144,14 @@ export default function App() {
         (line) => setRenderLogs((prev) => [...prev, line]),
       )
       setRenderedEnvId(renderResult.envId)
-      setRenderedDir(renderResult.renderDir)
 
       setRenderStage('backing-up')
-      const backupResponse = await fetchJson<CreateNewBackupResponse>('/api/backup', {
+      await fetchJson<CreateNewBackupResponse>('/api/backup', {
         env_id: renderResult.envId,
         passphrase,
         passphrase_confirm: passphrase,
       })
 
-      setResult(backupResponse)
       setRenderStage('done')
       setRenderPassphrase(passphrase)
     } catch (submitError) {
@@ -182,43 +177,43 @@ export default function App() {
     await verifyPasskey(createState.runId)
   }, [createState.runId, verifyPasskey])
 
-  // Auto-start bootstrap when render is done (stage = 'done')
+  // Auto-start bootstrap exactly ONCE per deploy. The ref latch is essential:
+  // guarding on !runId alone re-fired the effect after every reducer reset and
+  // produced an unbounded stream of /api/bootstrap/start 409s (field-found).
+  const bootstrapKickoff = useRef(false)
   useEffect(() => {
-    if (renderStage === 'done' && renderedEnvId && renderPassphrase && !createState.runId) {
+    if (
+      renderStage === 'done' &&
+      renderedEnvId &&
+      renderPassphrase &&
+      !bootstrapKickoff.current
+    ) {
+      bootstrapKickoff.current = true
       void handleStartBootstrap()
     }
-  }, [renderStage, renderedEnvId, renderPassphrase, createState.runId, handleStartBootstrap])
+  }, [renderStage, renderedEnvId, renderPassphrase, handleStartBootstrap])
 
   // Determine if we should show validate phase
   const [showValidate, setShowValidate] = useState(false)
 
+  // The operator-facing phase: the moment Deploy is pressed (renderStage
+  // leaves 'idle') we are INSTALLING — render+backup+bootstrap-start are all
+  // one continuous install from the operator's point of view. No interstitial
+  // screens, no fallback buttons between Deploy and the splash.
+  const effectivePhase =
+    renderStage !== 'idle' && createState.phase === 'configure'
+      ? 'installing'
+      : createState.phase
+
+  // Until the bootstrap stream takes over, the splash ticker/log shows the
+  // wizard render output.
+  const mergedLogs = bootstrapLogs.length
+    ? bootstrapLogs
+    : renderLogs.map((line) => ({ step: 'render', line }))
+
   // Render the appropriate create phase
   function renderCreatePhase() {
-    // During render/backup (before bootstrap starts)
-    if (renderStage === 'idle' || renderStage === 'rendering' || renderStage === 'backing-up') {
-      return (
-        <ConfigureStep
-          onSubmit={handleSubmit}
-          onPageChange={setConfigPage}
-          busy={renderBusy}
-          error={renderError}
-        />
-      )
-    }
-
-    // Render/backup done, bootstrap about to start (or starting)
-    if (renderStage === 'done' && !createState.runId && !createState.terminal) {
-      return (
-        <div className="flex flex-col items-center justify-center gap-3 py-16">
-          <p className="text-sm text-muted">Starting bootstrap…</p>
-          {renderedDir && <details className="w-full max-w-lg"><summary className="cursor-pointer text-xs text-muted">Show render logs</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">{renderLogs.join('\n')}</pre></details>}
-        </div>
-      )
-    }
-
-    const phase = createState.phase
-
-    if (showValidate && phase === 'finish') {
+    if (showValidate && effectivePhase === 'finish') {
       return (
         <ValidateStep
           envId={renderedEnvId ?? ''}
@@ -227,31 +222,7 @@ export default function App() {
       )
     }
 
-    switch (phase) {
-      case 'configure':
-        // Should not normally reach here after render done (auto-start kicks in)
-        // But if render produced a result without auto-starting, show it
-        return (
-          <div className="grid gap-4">
-            {result && (
-              <div className="rounded-lg border border-accent/30 bg-accent/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-accentSoft">Checkpoint #1 sealed</p>
-                <h2 className="mt-1 text-lg font-semibold text-text">Ready to bootstrap.</h2>
-                <p className="mt-1 text-sm text-muted">Download the checkpoint #1 backup and keep the passphrase safe.</p>
-                <div className="mt-3">
-                  <button type="button" onClick={handleStartBootstrap} className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90">
-                    Run bootstrap
-                  </button>
-                </div>
-              </div>
-            )}
-            <details className="rounded-lg border border-border bg-panel p-3">
-              <summary className="cursor-pointer text-sm font-medium text-muted transition hover:text-text">Show render logs</summary>
-              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">{renderLogs.length ? renderLogs.join('\n') : 'Waiting for render logs...'}</pre>
-            </details>
-          </div>
-        )
-
+    switch (effectivePhase) {
       case 'installing':
       case 'verifying':
         return (
@@ -260,7 +231,7 @@ export default function App() {
             stepStatuses={createState.stepStatuses}
             currentStep={createState.currentStep}
             checkpoints={createState.checkpoints}
-            logs={bootstrapLogs}
+            logs={mergedLogs}
             cursor={cursor}
             reconnectNote={reconnectNote}
             streamError={streamError}
@@ -340,11 +311,26 @@ export default function App() {
     <Shell
       mode={mode}
       onModeChange={setMode}
-      createPhase={mode === 'create' ? createState.phase : undefined}
+      createPhase={mode === 'create' ? effectivePhase : undefined}
       subItems={mode === 'create' ? subItems : undefined}
       envId={renderedEnvId}
     >
-      {mode === 'create' ? renderCreatePhase() : <ManageView />}
+      {mode === 'create' ? (
+        <>
+          {/* Kept mounted (hidden) so form state survives a failed deploy. */}
+          <div className={effectivePhase === 'configure' ? 'h-full' : 'hidden'}>
+            <ConfigureStep
+              onSubmit={handleSubmit}
+              onPageChange={setConfigPage}
+              busy={renderBusy}
+              error={renderError}
+            />
+          </div>
+          {effectivePhase !== 'configure' && renderCreatePhase()}
+        </>
+      ) : (
+        <ManageView />
+      )}
     </Shell>
   )
 }

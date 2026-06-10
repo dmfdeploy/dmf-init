@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Disclosure } from '../shared/Disclosure'
 import { LogConsole, type LogEntry } from '../shared/LogConsole'
 
@@ -112,21 +112,43 @@ export function InstallProgress({
 
   // Latest meaningful activity line for the one-line ticker: skip blank lines
   // and Ansible's asterisk banners; strip trailing ***-runs from TASK/PLAY
-  // headers so their useful part still shows.
-  const latestActivity = useMemo(() => {
+  // headers so their useful part still shows. DOM updates are throttled to
+  // 2/s — fast ansible bursts otherwise repaint the line many times a second,
+  // which reads as flicker.
+  const latestRef = useRef<string | null>(null)
+  useEffect(() => {
     for (let i = logs.length - 1; i >= 0; i--) {
       const cleaned = logs[i].line.replace(/\*{3,}/g, ' ').replace(/\s+/g, ' ').trim()
-      if (cleaned) return cleaned
+      if (cleaned) {
+        latestRef.current = cleaned
+        return
+      }
     }
-    return null
   }, [logs])
+  const [latestActivity, setLatestActivity] = useState<string | null>(null)
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLatestActivity((prev) => (latestRef.current !== prev ? latestRef.current : prev))
+    }, 500)
+    return () => clearInterval(id)
+  }, [])
 
-  // Not-yet-running state
+  // Preparing state: covers wizard render + backup + bootstrap start. The
+  // ticker already streams the render output here, so the operator sees
+  // activity from the first second after Deploy.
   if (!currentStep && !terminal) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-16">
-        <LogoSplash className="h-16 w-auto opacity-60" />
-        <p className="text-sm text-muted">Waiting for steps to begin…</p>
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <LogoSplash className={`h-16 w-auto ${prefersReducedMotion() ? '' : 'animate-breathe'}`} />
+        <div className="text-center">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted">Preparing</p>
+          <p className="mt-0.5 text-base font-medium text-text">Setting up the environment…</p>
+        </div>
+        <div className="h-5 w-full max-w-lg overflow-hidden text-center" aria-hidden="true">
+          {latestActivity && (
+            <p className="truncate font-mono text-xs text-muted">{latestActivity}</p>
+          )}
+        </div>
       </div>
     )
   }
@@ -134,7 +156,7 @@ export function InstallProgress({
   return (
     <div className="flex flex-col items-center gap-5">
       {/* Splash logo */}
-      <LogoSplash className={`h-14 w-auto ${prefersReducedMotion() ? '' : 'animate-pulse'}`} />
+      <LogoSplash className={`h-14 w-auto ${prefersReducedMotion() ? '' : 'animate-breathe'}`} />
 
       {/* Current step label */}
       <div className="text-center">
