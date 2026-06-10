@@ -17,6 +17,7 @@ type SandboxForm = {
 
 type ConfigureStepProps = {
   onSubmit: (operator: OperatorForm, sandbox: SandboxForm, passphrase: string) => void
+  onPageChange?: (page: number) => void
   busy: boolean
   error: string | null
 }
@@ -37,7 +38,7 @@ const defaultOperator: OperatorForm = {
 
 type Page = 0 | 1 | 2 | 3
 
-export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
+export function ConfigureStep({ onSubmit, onPageChange, busy, error }: ConfigureStepProps) {
   const [operator, setOperator] = useState(defaultOperator)
   const [sandbox, setSandbox] = useState(defaultSandbox)
   const [passphrase, setPassphrase] = useState('')
@@ -74,12 +75,12 @@ export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
     setLocalError(null)
     const err = validatePage(page)
     if (err) { setLocalError(err); return }
-    if (page < 3) setPage((p) => (p + 1) as Page)
+    if (page < 3) { const next = (page + 1) as Page; setPage(next); onPageChange?.(next) }
   }
 
   function handleBack() {
     setLocalError(null)
-    if (page > 0) setPage((p) => (p - 1) as Page)
+    if (page > 0) { const prev = (page - 1) as Page; setPage(prev); onPageChange?.(prev) }
   }
 
   function handleDeploy(e: FormEvent) {

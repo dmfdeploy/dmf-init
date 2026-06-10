@@ -8,10 +8,18 @@ const CREATE_STEPS = [
   { key: 'finish', label: 'Finish' },
 ]
 
+export type RailSubItem = {
+  key: string
+  label: string
+  status: string
+}
+
 type ShellProps = {
   mode: 'create' | 'manage'
   onModeChange: (mode: 'create' | 'manage') => void
   createPhase?: CreatePhase
+  /** Sub-items rendered under the ACTIVE rail phase (keyed by phase key). */
+  subItems?: Record<string, RailSubItem[]>
   children: ReactNode
   envId?: string | null
 }
@@ -65,33 +73,56 @@ function labelFor(status: string): string {
   }
 }
 
-function StepRail({ steps, activeKey, statuses }: {
+function StepRail({ steps, activeKey, statuses, subItems }: {
   steps: typeof CREATE_STEPS
   activeKey: string
   statuses: Record<string, string>
+  subItems?: Record<string, RailSubItem[]>
 }) {
   return (
-    <nav aria-label="Installation steps" className="flex flex-col gap-1 py-2">
+    <nav aria-label="Installation steps" className="flex flex-col gap-1 overflow-y-auto py-2">
       {steps.map((step) => {
         const isActive = step.key === activeKey
         const status = statuses[step.key] ?? (isActive ? 'running' : 'pending')
+        const subs = isActive ? subItems?.[step.key] : undefined
         return (
-          <div
-            key={step.key}
-            className={[
-              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
-              isActive ? 'bg-accent/10 text-text' : 'text-muted',
-            ].join(' ')}
-            aria-current={isActive ? 'step' : undefined}
-          >
-            <span
-              className={['h-2.5 w-2.5 shrink-0 rounded-full', dotColor(status)].join(' ')}
-              aria-hidden="true"
-            />
-            <span className="font-medium">{step.label}</span>
-            <span className="ml-auto text-[11px] uppercase tracking-[0.18em]" aria-hidden="true">
-              {labelFor(status)}
-            </span>
+          <div key={step.key}>
+            <div
+              className={[
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+                isActive ? 'bg-accent/10 text-text' : 'text-muted',
+              ].join(' ')}
+              aria-current={isActive ? 'step' : undefined}
+            >
+              <span
+                className={['h-2.5 w-2.5 shrink-0 rounded-full', dotColor(status)].join(' ')}
+                aria-hidden="true"
+              />
+              <span className="font-medium">{step.label}</span>
+              <span className="ml-auto text-[11px] uppercase tracking-[0.18em]" aria-hidden="true">
+                {labelFor(status)}
+              </span>
+            </div>
+            {subs && subs.length > 0 && (
+              <ul className="mb-1 ml-[1.4rem] flex flex-col gap-0.5 border-l border-border pl-3">
+                {subs.map((sub) => (
+                  <li
+                    key={sub.key}
+                    className={[
+                      'flex items-center gap-2 py-1 text-xs',
+                      sub.status === 'running' ? 'text-text' : 'text-muted',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={['h-1.5 w-1.5 shrink-0 rounded-full', dotColor(sub.status)].join(' ')}
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">{sub.label}</span>
+                    <span className="sr-only">{labelFor(sub.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )
       })}
@@ -126,6 +157,7 @@ export function Shell({
   mode,
   onModeChange,
   createPhase,
+  subItems,
   children,
   envId,
 }: ShellProps) {
@@ -170,7 +202,12 @@ export function Shell({
       <div className="flex flex-1 overflow-hidden">
         {mode === 'create' && rail ? (
           <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
-            <StepRail steps={CREATE_STEPS} activeKey={rail.activeKey} statuses={rail.statuses} />
+            <StepRail
+              steps={CREATE_STEPS}
+              activeKey={rail.activeKey}
+              statuses={rail.statuses}
+              subItems={subItems}
+            />
           </aside>
         ) : null}
 

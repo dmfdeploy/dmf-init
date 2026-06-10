@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { StatusDot } from '../shared/StatusDot'
 import { Disclosure } from '../shared/Disclosure'
 import { LogConsole, type LogEntry } from '../shared/LogConsole'
 
@@ -22,14 +21,7 @@ type InstallProgressProps = {
   terminal: { kind: 'complete' | 'error'; runId?: string; checkpoints?: number[]; step?: string; error?: string } | null
 }
 
-const stepOrder = [
-  'pre-seed', 'checkpoint-2', 'unseal', 'seed-bao',
-  'post-seed', 'configure',
-  'workstation', 'passkey',
-  'verify', 'checkpoint-3',
-]
-
-function stepDisplayName(step: string): string {
+export function stepDisplayName(step: string): string {
   const names: Record<string, string> = {
     'pre-seed': 'Pre-seed',
     'checkpoint-2': 'Checkpoint #2',
@@ -110,13 +102,6 @@ export function InstallProgress({
     }
   }, [currentStep, installStart])
 
-  const orderedSteps = useMemo(() => {
-    const seen = new Set(steps)
-    const known = stepOrder.filter((s) => seen.has(s))
-    const extras = steps.filter((s) => !stepOrder.includes(s))
-    return [...known, ...extras.filter((s) => !known.includes(s))]
-  }, [steps])
-
   // Completed step count for honest progress
   const completedCount = Object.values(stepStatuses).filter((s) => s === 'ok').length
   const totalSteps = steps.length
@@ -124,6 +109,17 @@ export function InstallProgress({
 
   // Backup checkpoint ticks (shown under progress bar)
   const backupCheckpoints = checkpoints.filter((c) => c.n >= 2)
+
+  // Latest meaningful activity line for the one-line ticker: skip blank lines
+  // and Ansible's asterisk banners; strip trailing ***-runs from TASK/PLAY
+  // headers so their useful part still shows.
+  const latestActivity = useMemo(() => {
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const cleaned = logs[i].line.replace(/\*{3,}/g, ' ').replace(/\s+/g, ' ').trim()
+      if (cleaned) return cleaned
+    }
+    return null
+  }, [logs])
 
   // Not-yet-running state
   if (!currentStep && !terminal) {
@@ -161,6 +157,14 @@ export function InstallProgress({
             style={{ width: `${progressPct}%` }}
           />
         </div>
+        {/* One-line activity ticker — fixed height slot, no reflow. Hidden
+            from screen readers (changes every second); 'step N of M' above
+            stays the accessible progress signal. */}
+        <div className="mt-2 h-5 overflow-hidden text-center" aria-hidden="true">
+          {latestActivity && (
+            <p className="truncate font-mono text-xs text-muted">{latestActivity}</p>
+          )}
+        </div>
       </div>
 
       {/* Backup checkpoint ticks */}
@@ -184,33 +188,7 @@ export function InstallProgress({
         </span>
       )}
 
-      {/* Full step list behind disclosure */}
-      <Disclosure summary="Show steps" defaultOpen={false}>
-        <div className="w-full max-w-lg rounded-lg border border-border bg-panel/60 p-3">
-          <div className="grid gap-1.5">
-            {orderedSteps.length ? (
-              orderedSteps.map((step) => {
-                const status = stepStatuses[step] ?? 'pending'
-                const isCurrent = currentStep === step
-                return (
-                  <div
-                    key={step}
-                    className={[
-                      'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-                      isCurrent ? 'bg-accent/10 text-text' : 'text-muted',
-                    ].join(' ')}
-                  >
-                    <StatusDot status={status} />
-                    <span className="font-medium">{stepDisplayName(step)}</span>
-                  </div>
-                )
-              })
-            ) : (
-              <p className="text-sm text-muted">Waiting for the run to stream its step list.</p>
-            )}
-          </div>
-        </div>
-      </Disclosure>
+      {/* Step list lives in the left sidebar as sub-items of Install/Connect. */}
 
       {/* Log behind disclosure */}
       <Disclosure summary="Show details" defaultOpen={false}>
