@@ -241,3 +241,73 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
 
 def stat_mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
+
+
+def test_stream_render_emits_error_event_for_invalid_ssh_key(tmp_path):
+    """A garbage key must produce a clean {"event":"error"} line BEFORE the
+    wizard runs — not an exception escaping the generator (which the browser
+    sees as a dropped connection)."""
+    import shutil as _shutil
+
+    import pytest as _pytest
+
+    if not _shutil.which("ssh-keygen"):
+        _pytest.skip("ssh-keygen not available")
+
+    import json as _json
+
+    from dmf_init.createnew import (
+        CreateNewRenderRequest,
+        OperatorInputs,
+        SandboxInputs,
+        stream_render_create_new,
+    )
+
+    data_root = tmp_path / "data"
+    # Minimal fake wizard so _require_runtime_repo passes; it must NOT run.
+    wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
+    wizard.parent.mkdir(parents=True)
+    wizard.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    wizard.chmod(0o755)
+
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(username="op", email="op@dmf.test", display="Op"),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.99",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key="not a real key",
+        ),
+    )
+    events = [_json.loads(line) for line in stream_render_create_new(data_root, request)]
+    assert events, "stream produced no events"
+    assert events[-1]["event"] == "error"
+    assert "private key" in events[-1]["error"]
+
+
+def test_stream_render_wraps_unexpected_failures_as_error_event(tmp_path):
+    """CreateNewError (e.g. repos missing) surfaces as an error event, not an
+    exception out of the generator."""
+    import json as _json
+
+    from dmf_init.createnew import (
+        CreateNewRenderRequest,
+        OperatorInputs,
+        SandboxInputs,
+        stream_render_create_new,
+    )
+
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(username="op", email="op@dmf.test", display="Op"),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.99",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key="irrelevant",
+        ),
+    )
+    events = [_json.loads(line) for line in stream_render_create_new(tmp_path / "empty", request)]
+    assert events[-1]["event"] == "error"
+    assert "repos" in events[-1]["error"]
