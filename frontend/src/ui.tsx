@@ -65,7 +65,7 @@ export function ArtifactDownload(props: {
   label?: string
 }) {
   return (
-    <div className="rounded-lg border border-border bg-panel/60 p-3">
+    <div className="min-w-0 rounded-lg border border-border bg-panel p-3">
       <span className="text-muted">{props.label ?? 'Artifact'}</span>
       <div className="mt-1 flex items-center gap-3">
         <span className="font-medium text-text">{props.artifactName}</span>
@@ -246,7 +246,7 @@ function CaOsSection(props: {
         {props.command && props.onCopy && (
           <div className="mt-2">
             <div className="flex items-center justify-between gap-2">
-              <pre className="overflow-auto rounded-md border border-border bg-bg/80 p-2 text-xs leading-5 text-text">
+              <pre className="min-w-0 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-bg p-2 text-xs leading-5 text-text">
                 {props.command}
               </pre>
               <button
