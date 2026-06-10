@@ -62,6 +62,10 @@ ARG OPENTOFU_VERSION=1.10.3
 ARG SOPS_VERSION=3.10.2
 ARG KUBECTL_VERSION=1.33.1
 ARG HELM_VERSION=3.18.4
+# OpenTofu is cloud-lane only (Hetzner, Phase 2); no dmf-env bin/ script in the
+# sandbox lane invokes it. Off by default (~85MB smaller image); build with
+# --build-arg INCLUDE_OPENTOFU=true for cloud-profile images.
+ARG INCLUDE_OPENTOFU=false
 
 # Known-good experiment-phase set:
 # opentofu 1.10.3 (cloud lanes), sops 3.10.2, kubectl 1.33.1, helm 3.18.4
@@ -72,8 +76,10 @@ RUN set -eux; \
       arm64) arch="arm64" ;; \
       *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSLo /tmp/tofu.zip "https://github.com/opentofu/opentofu/releases/download/v${OPENTOFU_VERSION}/tofu_${OPENTOFU_VERSION}_linux_${arch}.zip"; \
-    unzip -o /tmp/tofu.zip -d /usr/local/bin; \
+    if [ "$INCLUDE_OPENTOFU" = "true" ]; then \
+      curl -fsSLo /tmp/tofu.zip "https://github.com/opentofu/opentofu/releases/download/v${OPENTOFU_VERSION}/tofu_${OPENTOFU_VERSION}_linux_${arch}.zip"; \
+      unzip -o /tmp/tofu.zip -d /usr/local/bin; \
+    fi; \
     curl -fsSLo /usr/local/bin/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.${arch}"; \
     chmod +x /usr/local/bin/sops; \
     curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"; \
