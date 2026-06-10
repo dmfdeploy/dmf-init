@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { CaInstall, type CaCertPayload } from '../ui'
+import { Disclosure } from '../shared/Disclosure'
 import type { ActivePause } from '../hooks/useCreateFlow'
 
 type HostsMapPayload = {
@@ -125,19 +126,22 @@ export function ConnectStep({
           </span>
         </div>
 
-        {/* Station content */}
-        <div className="grid gap-4">
+        {/* Station content — single column, internal scroll keeps the page
+            itself viewport-fit. (A two-column grid here overlapped in the
+            field; pre blocks with unbreakable lines make column layouts
+            fragile.) */}
+        <div className="grid max-h-[calc(100vh-16rem)] min-w-0 gap-4 overflow-y-auto pr-1">
           {/* Workstation station: CA trust + hosts mapping */}
           {activePause.pause_id === 'workstation' && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="grid gap-3">
+            <div className="grid min-w-0 gap-4">
+              <div className="grid min-w-0 gap-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted">1 · Trust the DMF Local CA</p>
                 <CaCertStation
                   payload={(activePause.payload as unknown as WorkstationPayload).ca}
                   onDownload={downloadCaCertificate}
                 />
               </div>
-              <div className="grid gap-3">
+              <div className="grid min-w-0 gap-3 border-t border-border pt-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted">2 · Map cluster hostnames</p>
                 <HostsMapStation
                   payload={(activePause.payload as unknown as WorkstationPayload).hosts}
@@ -225,11 +229,13 @@ function CaCertStation({
         </p>
       </div>
       {payload.requirement_note && (
-        <p className="text-sm leading-5 text-muted">{payload.requirement_note}</p>
+        <Disclosure summary="Learn more">
+          <p className="text-sm leading-5 text-muted">{payload.requirement_note}</p>
+        </Disclosure>
       )}
       {payload.present ? (
         <>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2.5 text-xs leading-5 text-text">
+          <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-bg p-2.5 text-xs leading-5 text-text">
             {payload.pem}
           </pre>
           <div className="flex flex-wrap items-center gap-2">
@@ -268,7 +274,7 @@ function HostsMapStation({
   return (
     <div className="grid gap-3">
       <p className="text-sm leading-5 text-muted">{payload.note}</p>
-      <div className="rounded-lg border border-border bg-panel/60 p-3">
+      <div className="min-w-0 rounded-lg border border-border bg-bg p-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs uppercase tracking-[0.18em] text-muted">/etc/hosts entries</p>
           <button
@@ -283,11 +289,11 @@ function HostsMapStation({
             {copied ? '✓ Copied' : 'Copy'}
           </button>
         </div>
-        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">
+        <pre className="mt-2 max-h-24 min-w-0 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-panel p-2 text-[11px] leading-5 text-text">
           {payload.entries.join('\n') || 'No entries yet.'}
         </pre>
       </div>
-      <div className="rounded-lg border border-border bg-panel/60 p-3">
+      <div className="min-w-0 rounded-lg border border-border bg-bg p-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs uppercase tracking-[0.18em] text-muted">One-liner</p>
           <button
@@ -302,7 +308,7 @@ function HostsMapStation({
             {copiedCmd ? '✓ Copied' : 'Copy'}
           </button>
         </div>
-        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">
+        <pre className="mt-2 max-h-24 min-w-0 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-panel p-2 text-[11px] leading-5 text-text">
           {`printf '%s\\n' ${payload.entries.map((e) => `'${e.replaceAll("'", "'\\''")}'`).join(' ')} | sudo tee -a /etc/hosts >/dev/null`}
         </pre>
       </div>
