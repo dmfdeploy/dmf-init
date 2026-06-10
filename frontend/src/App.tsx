@@ -9,6 +9,7 @@ import { useCreateFlow, type ActivePause } from './hooks/useCreateFlow'
 import { useEventStream } from './hooks/useEventStream'
 import ManageView from './ManageView'
 import { readNdjson } from './ndjson'
+import { describeFetchError } from './shared/errors'
 
 type CreateNewBackupResponse = {
   env_id: string
@@ -159,7 +160,7 @@ export default function App() {
       setRenderStage('done')
       setRenderPassphrase(passphrase)
     } catch (submitError) {
-      setRenderError(submitError instanceof Error ? submitError.message : String(submitError))
+      setRenderError(describeFetchError(submitError))
       setRenderStage('idle')
     } finally {
       setRenderBusy(false)

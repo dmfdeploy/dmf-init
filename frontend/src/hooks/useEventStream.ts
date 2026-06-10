@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { readNdjson } from '../ndjson'
+import { describeFetchError } from '../shared/errors'
 
 type LogEntry = { step: string; line: string }
 type EventCallback = (event: Record<string, unknown>) => void
@@ -148,7 +149,7 @@ export function useEventStream({
         } catch (error) {
           if (cancelled || controller.signal.aborted) return
           if (retries >= 5) {
-            setStreamError(error instanceof Error ? error.message : String(error))
+            setStreamError(describeFetchError(error))
             return
           }
           retries += 1
