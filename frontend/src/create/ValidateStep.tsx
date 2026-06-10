@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useState } from 'react'
 import { useEventStream } from '../hooks/useEventStream'
 import { StatusDot } from '../shared/StatusDot'
 import { Disclosure } from '../shared/Disclosure'
@@ -83,6 +83,25 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
   })
   const [busy, setBusy] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const [pkgDownloaded, setPkgDownloaded] = useState<boolean | null>(null)
+
+  // Validation also reports whether the recovery package was downloaded —
+  // the other half of "safe to delete".
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/package/${encodeURIComponent(envId)}/status`, {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { downloaded_at: number | null } | null) => {
+        if (!cancelled && payload) setPkgDownloaded(Boolean(payload.downloaded_at))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [envId])
 
   const handleEvent = useCallback(
     (event: Record<string, unknown>) => {
@@ -168,6 +187,17 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
             <p className="mt-2 text-sm leading-6 text-muted">
               Re-run the doctor check to verify cluster health.
             </p>
+            {pkgDownloaded !== null && (
+              <p className="mt-2 text-sm leading-6" aria-live="polite">
+                {pkgDownloaded ? (
+                  <span className="text-emerald-200">✓ Recovery package downloaded.</span>
+                ) : (
+                  <span className="text-amber-300">
+                    Recovery package not downloaded yet — do that before deleting the container.
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <button
             type="button"
