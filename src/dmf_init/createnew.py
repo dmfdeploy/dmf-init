@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -15,6 +16,8 @@ from pydantic import BaseModel, Field
 from .backup import BackupManifestMeta, BackupResult, backup
 from .redaction import redact_text
 from .yaml_utils import parse_yaml_scalar_anywhere, rewrite_yaml_scalar, yaml_scalar
+
+logger = logging.getLogger("dmf_init.createnew")
 
 SANDBOX_PROFILE = "sandbox-single-node"
 ANSWER_SCHEMA_VERSION = 1
@@ -266,6 +269,10 @@ def run_render_create_new(
     state.ssh_private_key_path = state.work_dir / "ssh" / "sandbox-node.key"
     _generate_age_key(state.age_key_path)
     _write_file(state.ssh_private_key_path, request.sandbox.ssh_private_key)
+    key_error = _validate_ssh_private_key(state.ssh_private_key_path)
+    if key_error:
+        yield json.dumps({"event": "error", "error": key_error}, separators=(",", ":")) + "\n"
+        return
     _write_file(
         state.answers_file_path,
         _answers_file_contents(request, state.ssh_private_key_path),
@@ -351,7 +358,53 @@ def run_render_create_new(
     return _finalise_render_state(state)
 
 
+def _validate_ssh_private_key(path: Path) -> str | None:
+    """Cheap fail-fast parse check (ssh-keygen -y) before the wizard runs.
+
+    Returns an operator-actionable error message, or None if the key is
+    usable. A bad key otherwise only explodes minutes later when the public
+    key is derived during finalize."""
+    try:
+        proc = subprocess.run(
+            ["ssh-keygen", "-y", "-P", "", "-f", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:  # ssh-keygen missing/hung — treat as unusable
+        return f"could not validate the SSH private key: {exc}"
+    if proc.returncode != 0:
+        return (
+            "The SSH private key could not be parsed (or it is "
+            "passphrase-protected). Paste an unencrypted private key in "
+            "OpenSSH or PEM format."
+        )
+    return None
+
+
 def stream_render_create_new(
+    data_root: Path,
+    request: CreateNewRenderRequest,
+) -> Iterator[str]:
+    """Stream the render as NDJSON. Never lets an exception escape: any
+    failure becomes an {"event": "error"} line, so the browser always gets a
+    clean terminal event instead of a dropped connection."""
+    try:
+        yield from _stream_render_create_new_inner(data_root, request)
+    except CreateNewError as exc:
+        yield json.dumps({"event": "error", "error": str(exc)}, separators=(",", ":")) + "\n"
+    except Exception:
+        logger.exception("create-new render stream failed unexpectedly")
+        yield json.dumps(
+            {
+                "event": "error",
+                "error": "render failed unexpectedly — the container log has details",
+            },
+            separators=(",", ":"),
+        ) + "\n"
+
+
+def _stream_render_create_new_inner(
     data_root: Path,
     request: CreateNewRenderRequest,
 ) -> Iterator[str]:
@@ -367,6 +420,10 @@ def stream_render_create_new(
     state.ssh_private_key_path = state.work_dir / "ssh" / "sandbox-node.key"
     _generate_age_key(state.age_key_path)
     _write_file(state.ssh_private_key_path, request.sandbox.ssh_private_key)
+    key_error = _validate_ssh_private_key(state.ssh_private_key_path)
+    if key_error:
+        yield json.dumps({"event": "error", "error": key_error}, separators=(",", ":")) + "\n"
+        return
     _write_file(
         state.answers_file_path,
         _answers_file_contents(request, state.ssh_private_key_path),
