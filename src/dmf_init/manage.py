@@ -245,23 +245,29 @@ def run_manage_restore(
         shutil.rmtree(dest_dir, ignore_errors=True)
 
 
-def build_doctor_run(
-    session: ManageSession,
+def build_env_doctor_run(
+    env_id: str,
+    age_key_path: Path,
     data_root: Path,
     *,
     executor: CommandExecutor | None = None,
 ) -> BootstrapRun:
+    """Build a read-only `doctor` run for an env that already lives in tmpfs.
+
+    Shared by the Manage flow (restored session) and the create flow (the
+    env rendered in this same container). Only needs env_id + its age key.
+    """
     bin_path = data_root / "repos" / "dmf-env" / "bin" / "bootstrap-secrets.sh"
     if not bin_path.is_file():
         raise ManageError("repos must be fetched first")
 
     doctor_step = CommandStep(
         id="doctor",
-        argv=[str(bin_path), "doctor", session.env_id],
+        argv=[str(bin_path), "doctor", env_id],
         cwd=data_root / "repos" / "dmf-env",
         env={
             "DMF_DATA_ROOT": str(data_root),
-            "SOPS_AGE_KEY_FILE": str(session.age_key_path),
+            "SOPS_AGE_KEY_FILE": str(age_key_path),
             "NO_COLOR": "1",
             "TERM": "dumb",
         },
@@ -272,10 +278,24 @@ def build_doctor_run(
         executor=executor or SubprocessExecutor(),
     )
 
-    openbao_keys_path = data_root / "envs" / session.env_id / "openbao-keys.json"
+    openbao_keys_path = data_root / "envs" / env_id / "openbao-keys.json"
     if openbao_keys_path.is_file():
         with openbao_keys_path.open("r", encoding="utf-8") as stream:
             payload = json.load(stream)
         for secret in _iter_secret_strings(payload):
             run.add_secret(secret)
     return run
+
+
+def build_doctor_run(
+    session: ManageSession,
+    data_root: Path,
+    *,
+    executor: CommandExecutor | None = None,
+) -> BootstrapRun:
+    return build_env_doctor_run(
+        session.env_id,
+        session.age_key_path,
+        data_root,
+        executor=executor,
+    )

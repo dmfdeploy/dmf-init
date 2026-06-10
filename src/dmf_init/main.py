@@ -57,6 +57,7 @@ from .manage import (
     ManageRestoreRequest,
     ManageSession,
     build_doctor_run,
+    build_env_doctor_run,
     run_manage_restore,
 )
 from .manage_actions import (
@@ -182,6 +183,10 @@ class BootstrapResumeRequest(BaseModel):
     run_id: str
     pause_id: str
     payload: dict[str, Any] | None = None
+
+
+class BootstrapDoctorRequest(BaseModel):
+    env_id: str
 
 
 class BootstrapPasskeyStatusResponse(BaseModel):
@@ -607,6 +612,76 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             confirmed=int(payload.get("confirmed", 0) or 0),
             required=int(payload.get("required", 0) or 0),
         ).model_dump())
+
+    @app.post(
+        "/api/bootstrap/doctor",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def bootstrap_doctor(payload: BootstrapDoctorRequest) -> JSONResponse:
+        """Optional post-bootstrap re-validation for the create flow.
+
+        Runs the read-only `doctor` against the env still living in this
+        container's tmpfs (no Manage restore needed). Streams over the same
+        /api/bootstrap/stream contract as every other run.
+        """
+        _gc_terminal_runs()
+        from .backup import validate_env_id
+        try:
+            validate_env_id(payload.env_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+
+        # Resolve the env (also validates it exists) to get its age key path.
+        try:
+            ctx = BootstrapContext.from_data_root(settings.data_root, payload.env_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+
+        # P1-1: Reserve under lock; ANY pre-spawn failure clears.
+        with app.state.bootstrap_lock:
+            if payload.env_id in app.state.active_runs:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="an operation is already in progress for this env",
+                )
+            app.state.active_runs[payload.env_id] = "__pending__"
+
+        def _clear_active() -> None:
+            with app.state.bootstrap_lock:
+                app.state.active_runs.pop(payload.env_id, None)
+
+        try:
+            run = build_env_doctor_run(payload.env_id, ctx.age_key_path, settings.data_root)
+        except Exception as exc:
+            _clear_active()
+            if isinstance(exc, ManageError):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+                ) from exc
+            raise
+
+        # P3: wrap set+spawn so any thread-start failure clears reservation.
+        try:
+            with app.state.bootstrap_lock:
+                app.state.bootstrap_runs[run.run_id] = run
+                app.state.active_runs[payload.env_id] = run.run_id
+
+            worker = threading.Thread(
+                target=lambda: (_run_worker_wrapper(run), _clear_active()),
+                daemon=True,
+            )
+            worker.start()
+        except Exception:
+            with app.state.bootstrap_lock:
+                app.state.active_runs.pop(payload.env_id, None)
+                app.state.bootstrap_runs.pop(run.run_id, None)
+            raise
+        return JSONResponse({"run_id": run.run_id})
 
     @app.delete(
         "/api/bootstrap/runs/{run_id}",
