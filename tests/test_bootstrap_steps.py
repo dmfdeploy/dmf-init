@@ -362,8 +362,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
         "seed-bao",
         "post-seed",
         "configure",
-        "ca-cert",
-        "hosts-map",
+        "workstation",
         "passkey",
         "verify",
         "checkpoint-3",
@@ -392,6 +391,10 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
         "hint": "run get-passkey-enrollment-url.sh sandbox-alpha on the host",
         "host_hint": "run get-passkey-enrollment-url.sh sandbox-alpha on the host",
     }
+
+    workstation = bootstrap_steps.build_workstation_payload(ctx)
+    assert workstation["ca"] == build_ca_cert_payload(ctx)
+    assert workstation["hosts"] == build_hosts_map_payload(ctx)
 
     absent_ctx = BootstrapContext(
         data_root=ctx.data_root,
@@ -445,10 +448,9 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     worker.start()
 
     _wait_for(
-        lambda: any(ev["event"] == "pause" and ev["pause_id"] == "ca-cert" for ev in run.events)
+        lambda: any(ev["event"] == "pause" and ev["pause_id"] == "workstation" for ev in run.events)
     )
     assert any(ev["event"] == "checkpoint" and ev["n"] == 2 for ev in run.events)
-    assert not any(ev["event"] == "pause" and ev["pause_id"] == "hosts-map" for ev in run.events)
     assert not any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
     log_lines = [event["line"] for event in run.events if event["event"] == "log"]
     assert log_lines
@@ -456,13 +458,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert all("ROOT-SENTINEL" not in line for line in log_lines)
     assert any("[REDACTED]" in line for line in log_lines)
 
-    run.resume("ca-cert")
-    _wait_for(
-        lambda: any(ev["event"] == "pause" and ev["pause_id"] == "hosts-map" for ev in run.events)
-    )
-    assert not any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
-
-    run.resume("hosts-map")
+    run.resume("workstation")
     _wait_for(
         lambda: any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
     )
@@ -472,7 +468,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert not worker.is_alive()
     assert checkpoint_calls == [2, 3]
     pause_ids = [event["pause_id"] for event in run.events if event["event"] == "pause"]
-    assert pause_ids == ["ca-cert", "hosts-map", "passkey"]
+    assert pause_ids == ["workstation", "passkey"]
     assert run.events[-1]["event"] == "complete"
     assert run.events[-1]["checkpoints"] == [2, 3]
 

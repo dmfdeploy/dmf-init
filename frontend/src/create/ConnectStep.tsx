@@ -18,6 +18,11 @@ type PasskeyPayload = {
   hint: string
 }
 
+type WorkstationPayload = {
+  ca: CaCertPayload
+  hosts: HostsMapPayload
+}
+
 type ConnectStepProps = {
   activePause: ActivePause | null
   resumeBusy: boolean
@@ -136,23 +141,31 @@ export function ConnectStep({
 
         {/* Station content — fixed-height slots to prevent reflow */}
         <div className="mt-5 grid gap-4" style={{ minHeight: '16rem' }}>
-          {/* CA-Cert station */}
-          {activePause.pause_id === 'ca-cert' && (
-            <CaCertStation
-              payload={activePause.payload as CaCertPayload}
-              onDownload={downloadCaCertificate}
-            />
-          )}
-
-          {/* Hosts-map station */}
-          {activePause.pause_id === 'hosts-map' && (
-            <HostsMapStation
-              payload={activePause.payload as HostsMapPayload}
-              onCopy={copyHostsMap}
-              onCopyCommand={async () => {
-                await copyText(hostsMapCommand((activePause.payload as HostsMapPayload).entries))
-              }}
-            />
+          {/* Workstation station: CA trust + hosts mapping, one Continue */}
+          {activePause.pause_id === 'workstation' && (
+            <>
+              <p className="text-xs uppercase tracking-[0.28em] text-accentSoft">
+                1 · Trust the DMF Local CA
+              </p>
+              <CaCertStation
+                payload={(activePause.payload as unknown as WorkstationPayload).ca}
+                onDownload={downloadCaCertificate}
+              />
+              <p className="mt-2 text-xs uppercase tracking-[0.28em] text-accentSoft">
+                2 · Map cluster hostnames
+              </p>
+              <HostsMapStation
+                payload={(activePause.payload as unknown as WorkstationPayload).hosts}
+                onCopy={copyHostsMap}
+                onCopyCommand={async () => {
+                  await copyText(
+                    hostsMapCommand(
+                      (activePause.payload as unknown as WorkstationPayload).hosts.entries,
+                    ),
+                  )
+                }}
+              />
+            </>
           )}
 
           {/* Passkey station */}

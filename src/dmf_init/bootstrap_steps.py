@@ -379,14 +379,16 @@ def build_ca_cert_payload(ctx: BootstrapContext) -> dict[str, Any]:
         "present": False,
         "note": "",
         "requirement_note": (
-            "Trusting the DMF Local CA is REQUIRED for mandatory passkey enrollment. "
-            "If the certificate is not trusted, WebAuthn will fail silently — "
-            "'Registration cancelled or timed out' means non-secure-context, NOT "
-            "a real cancel. To limit blast radius, trust the CA only in Firefox's "
-            "own certificate store (Preferences > Privacy & Security > Certificates "
-            "> View Certificates > Authorities > Import) or in a dedicated browser "
-            "profile. To remove later: delete the 'DMF Local CA' entry "
-            "from your certificate store."
+            "Trusting the DMF Local CA is strongly recommended: without it every "
+            "cluster service shows certificate warnings, and on desktop "
+            "Chrome/Chromium passkey enrollment fails silently — 'Registration "
+            "cancelled or timed out' there means non-secure-context, NOT a real "
+            "cancel. Other browsers (e.g. Safari/iOS) may allow enrollment after "
+            "a certificate warning. To limit blast radius, trust the CA only in "
+            "Firefox's own certificate store (Preferences > Privacy & Security > "
+            "Certificates > View Certificates > Authorities > Import) or in a "
+            "dedicated browser profile. To remove later: delete the 'DMF Local "
+            "CA' entry from your certificate store."
         ),
     }
     try:
@@ -488,6 +490,19 @@ def build_hosts_map_payload(ctx: BootstrapContext) -> dict[str, Any]:
     }
 
 
+def build_workstation_payload(ctx: BootstrapContext) -> dict[str, Any]:
+    """Combined payload for the single 'prepare your workstation' pause.
+
+    CA trust and hosts mapping are both local-workstation tasks with no
+    server-side gate, so they pause the run once, not twice. The sub-payloads
+    keep their existing shapes (the /api/ca-cert endpoint reuses the CA one).
+    """
+    return {
+        "ca": build_ca_cert_payload(ctx),
+        "hosts": build_hosts_map_payload(ctx),
+    }
+
+
 def build_passkey_payload(ctx: BootstrapContext) -> dict[str, Any]:
     payload = {
         "enrollment_url": "",
@@ -574,14 +589,9 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             ctx.run_playbook_argv("bootstrap-sandbox-configure.yml"),
         ),
         PauseStep(
-            id="ca-cert",
-            title="Download CA certificate",
-            payload_fn=lambda run, ctx=ctx: build_ca_cert_payload(ctx),
-        ),
-        PauseStep(
-            id="hosts-map",
-            title="Add hosts mapping",
-            payload_fn=lambda run, ctx=ctx: build_hosts_map_payload(ctx),
+            id="workstation",
+            title="Prepare your workstation",
+            payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
         ),
         PauseStep(
             id="passkey",

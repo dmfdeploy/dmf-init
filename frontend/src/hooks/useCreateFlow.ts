@@ -18,8 +18,7 @@ type BootstrapCheckpoint = {
 }
 
 export type ActivePause =
-  | { pause_id: 'ca-cert'; title: string; payload: Record<string, unknown> }
-  | { pause_id: 'hosts-map'; title: string; payload: Record<string, unknown> }
+  | { pause_id: 'workstation'; title: string; payload: Record<string, unknown> }
   | { pause_id: 'passkey'; title: string; payload: Record<string, unknown> }
 
 type TerminalState =
@@ -69,11 +68,11 @@ function determinePhase(state: CreateState): CreatePhase {
     return st['verify'] === 'ok' ? 'installing' : 'verifying'
   }
 
-  // We're in the Connect region only once the FIRST pause (ca-cert) has begun.
-  // Before that, the still-pending pause steps must not pull us out of Install
-  // during pre-seed…configure.
-  const caStarted = st['ca-cert'] === 'running' || st['ca-cert'] === 'ok'
-  if (caStarted) return 'connect'
+  // We're in the Connect region only once the FIRST pause (workstation) has
+  // begun. Before that, the still-pending pause steps must not pull us out of
+  // Install during pre-seed…configure.
+  const workstationStarted = st['workstation'] === 'running' || st['workstation'] === 'ok'
+  if (workstationStarted) return 'connect'
 
   return 'installing'
 }
