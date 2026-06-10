@@ -1,0 +1,9 @@
+# dmf-init — CODEOWNERS
+# Scaffold repo; minimal ownership while content lands.
+
+# Default
+*                              @dmfdeploy/maintainers
+
+# CI / GitHub workflows
+/.github/                      @dmfdeploy/maintainers
+/.forgejo/                     @dmfdeploy/maintainers

@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+  --bg: #050816;
+  --panel: rgba(10, 16, 30, 0.92);
+  --accent: #7dd3fc;
+  --accent-soft: #67e8f9;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: rgba(148, 163, 184, 0.18);
+}
+
+html {
+  color-scheme: dark;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Avenir Next", "Avenir", "Helvetica Neue", "Segoe UI", sans-serif;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgba(125, 211, 252, 0.35);
+}

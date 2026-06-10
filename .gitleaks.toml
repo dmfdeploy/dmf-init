@@ -1,0 +1,67 @@
+# DMF Platform — sub-repo gitleaks config
+#
+# Mirrors the public-safe subset of the umbrella's .gitleaks.toml so each
+# public repo's local pre-commit catches the same leak categories:
+#   - generic-api-key (default), allowlisted under docs/
+#   - dmf-dev-changeme: known placeholder credential
+#   - dmf-private-network-literal: concrete private or mesh IPs
+#   - dmf-macos-metadata: macOS metadata leaks
+#
+# Public repos intentionally do not encode operator-specific identity
+# strings in this file. Those remain in the private umbrella scrub gate.
+#
+# Add new exceptions only with a comment explaining why and a path
+# anchored as narrowly as possible.
+
+[extend]
+useDefault = true
+
+# Global allowlist for gitignored local working-tree noise.
+[allowlist]
+description = "local working-tree noise (gitignored)"
+paths = [
+    '''^\.venv/''',
+    '''^node_modules/''',
+    '''^\.terraform/''',
+    '''^\.claude/settings\.local\.json$''',
+]
+
+# Per-rule allowlist for the default generic-api-key rule.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "docs/ prose references to secret/token concepts"
+paths = [
+    '''^docs/'''
+]
+
+# Catch a known placeholder credential if it appears outside documentation.
+[[rules]]
+id = "dmf-dev-changeme"
+description = "Known placeholder credential"
+regex = '''dev[:]changeme'''
+tags = ["placeholder-cred", "dmf"]
+
+# Catch concrete private-network details in public-facing repos. Example
+# addresses belong in placeholder form (`<node-private-ip>`) or under the
+# private environment repo, not here.
+[[rules]]
+id = "dmf-private-network-literal"
+description = "Concrete private or mesh IP address"
+regex = '''\b(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|100\.(6[4-9]|[78][0-9]|9[0-9]|10[0-9]|11[0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3})\b'''
+tags = ["topology", "dmf"]
+
+# Catch macOS metadata leaking into the tracked tree.
+[[rules]]
+id = "dmf-macos-metadata"
+description = "macOS metadata file in tracked tree"
+regex = '''\.DS[_]Store'''
+tags = ["operator-identity", "dmf"]
+[[rules.allowlists]]
+description = "files that intentionally name the artifact"
+paths = [
+    '''^\.gitleaks\.toml$''',
+    '''(^|/)\.gitignore$''',
+    '''(^|/)\.helmignore$''',
+    '''(^|/)docs/DEVELOPMENT-AND-BUILD-RULES\.md$''',
+]

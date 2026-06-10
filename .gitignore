@@ -1,0 +1,103 @@
+# === DMF Platform .gitignore ===
+# Repo-specific rules go above the baseline block at the bottom.
+
+# Python (FastAPI backend)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / React frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Container build scratch
+src/dmf_init/static/app/
+*.tar.age
+*.tar.zst
+
+# macOS metadata
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+Icon
+Icon?
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+__MACOSX/
+
+# Editor / local workspace noise
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === Secrets-prevention baseline (DMF Platform 2026-05-07) ===
+# Patterns that should never be committed across any DMF Platform repo.
+# Repo-specific rules belong above this block; add new shared rules here.
+
+# Kubeconfigs
+*.kubeconfig
+kubeconfig
+kube.config
+
+# Terraform / OpenTofu state
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Ansible inventory (auto-generated)
+hosts.ini
+
+# Cryptographic material
+*.pem
+*.key
+*.p12
+*.pfx
+
+# OpenBao / Vault tokens + key shares
+openbao-keys*.json
+openbao-keys*.hcl
+.bao-token
+.vault-token
+
+# Ansible secrets
+*.retry
+.vault_pass
+vault_pass
+
+# Env files / generic secrets
+.env
+.env.*
+.netrc
+secret_id
+secret_id.*
+
+# uv.lock is incidental (project uses pip); ignore it
+uv.lock
+
+# build-bundle.sh appliance tarball (build artifact, never commit)
+dmf-init-bundle-*.tar.gz

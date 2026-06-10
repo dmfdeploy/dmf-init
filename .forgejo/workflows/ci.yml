@@ -1,0 +1,33 @@
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --upgrade pip
+      - run: |
+          pip install .[dev]
+      - run: |
+          ruff check .
+      - run: |
+          pytest
+
+  frontend:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          cd frontend
+          npm ci
+      - run: |
+          cd frontend
+          npm run build
+
+  docker-build-smoke:
+    runs-on: docker
+    needs: [python, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker build --platform linux/arm64 -t dmf-init:ci .

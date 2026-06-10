@@ -1,0 +1,20 @@
+name: Feature request
+description: Propose an enhancement or new capability.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For larger design questions, prefer **Discussions**. ⚠️ No secrets, real
+        IPs/DNS, or operator identity in this issue — use placeholders.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve? Who needs it?
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations: { required: false }

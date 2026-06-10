@@ -1,0 +1,43 @@
+# QWEN.md — dmf-init
+
+## DMF Platform context — read first
+
+This repo is a component of the **DMF Platform**, an umbrella workspace
+checked out alongside this repo. Operators set `$DMFDEPLOY_UMBRELLA` to its
+local path. Cross-cutting state (status, decisions, plans, skills) lives
+there, not here.
+
+Before any non-trivial change in this repo:
+
+```bash
+cd "$DMFDEPLOY_UMBRELLA"
+git fetch && git pull
+bin/generate-status.sh --no-fetch    # refreshes STATUS.md
+```
+
+Then read in order:
+1. `dmfdeploy/STATUS.md` — what's happening across all repos right now
+2. `dmfdeploy/QWEN.md` — full boot ritual + skills index + Qwen-specific rules
+3. `dmfdeploy/docs/decisions/INDEX.md` — ADRs applicable to your task
+4. The most recent file under `dmfdeploy/docs/handoffs/`
+
+If you change cross-repo state, update the `<!-- HUMAN-START -->` section of
+`dmfdeploy/STATUS.md` before ending the session.
+
+---
+
+**Day-0 stateless init & bootstrap container.** A localhost-only web UI
+(React + FastAPI) that wraps `dmf-env`'s `init-wizard.sh --non-interactive` and
+`bin/` scripts to take a cluster from zero to verified, plus a
+passphrase-wrapped dual-remote backup/restore lifecycle so the container can be
+deleted after commissioning.
+
+Canonical spec: `dmfdeploy/docs/plans/DMF Init Bootstrap Container Plan 2026-06-02.md`.
+
+Non-negotiables specific to this repo:
+- **Wrap, don't reimplement** the `dmf-env` bash. The answers-file is the shared
+  CLI/web contract; generated secrets stay wizard-internal.
+- **Stateless**: tmpfs scratch only; never persist env state or secrets to the
+  host or to this repo.
+- **Public-safe**: no IPs, operator identity, or credentials in tracked files.
+- **Loopback-only** web bind; single-use launch token.

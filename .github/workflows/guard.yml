@@ -1,0 +1,113 @@
+name: guard
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: guard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gitleaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2 — full history for the PR commit range
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve config from BASE (never trust the PR-controlled .gitleaks.toml)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          if [ -n "${BASE_SHA:-}" ]; then
+            # pull_request: scan with the base branch's config, not the PR's
+            git show "${BASE_SHA}:.gitleaks.toml" > /tmp/gitleaks.toml
+          else
+            # push to main: the checked-out file IS the trusted config
+            cp .gitleaks.toml /tmp/gitleaks.toml
+          fi
+      - name: gitleaks (pinned binary + sha256)
+        env:
+          GL_VERSION: "8.21.2"
+          GL_SHA256: "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+        run: |
+          set -eu
+          curl -fsSLo /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz"
+          echo "${GL_SHA256}  /tmp/gl.tgz" | sha256sum -c -
+          tar -xzf /tmp/gl.tgz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --no-git --config /tmp/gitleaks.toml --redact --no-banner --exit-code 1
+      - name: Sanity-lint the PR's proposed .gitleaks.toml (non-blocking on content)
+        if: github.event_name == 'pull_request'
+        run: /tmp/gitleaks detect --no-git --source /dev/null --config .gitleaks.toml >/dev/null 2>&1 || echo "::warning::PR .gitleaks.toml changed — review the allowlist diff (CODEOWNERS-gated)"
+
+  commitlint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Conventional Commits check (inline, PR commits API)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+        run: |
+          set -eu
+          bad=0
+          re='^(feat|fix|docs|chore|refactor|test|build|ci|perf|revert|style)(\([a-z0-9._-]+\))?!?: .+'
+          page=1
+          while :; do
+            batch="$(gh api "${COMMITS_URL}?per_page=100&page=${page}" --jq '.[] | @base64')"
+            [ -z "$batch" ] && break
+            for row in $batch; do
+              subj="$(printf '%s' "$row" | base64 -d | python3 -c 'import sys,json;print(json.load(sys.stdin)["commit"]["message"].splitlines()[0])')"
+              case "$subj" in "Merge "*) continue;; esac
+              if ! printf '%s' "$subj" | grep -qE "$re"; then
+                echo "::error::non-conventional commit subject: $subj"
+                bad=1
+              fi
+            done
+            page=$((page+1))
+          done
+          [ "$bad" -eq 0 ] || exit 1
+
+  trivy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - name: trivy fs — vuln only (pinned binary + sha256)
+        env:
+          TRIVY_VERSION: "0.71.0"
+          TRIVY_SHA256: "30a3d22b23f88c233f1658f562fb477cae3b3e8b4761109d515b7698daf85814"
+        run: |
+          set -eu
+          curl -fsSLo /tmp/trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  /tmp/trivy.tgz" | sha256sum -c -
+          tar -xzf /tmp/trivy.tgz -C /tmp trivy
+          /tmp/trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress .
+
+  actionlint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - name: actionlint (pinned binary + sha256)
+        env:
+          AL_VERSION: "1.7.7"
+          AL_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+        run: |
+          set -eu
+          curl -fsSLo /tmp/al.tgz "https://github.com/rhysd/actionlint/releases/download/v${AL_VERSION}/actionlint_${AL_VERSION}_linux_amd64.tar.gz"
+          echo "${AL_SHA256}  /tmp/al.tgz" | sha256sum -c -
+          tar -xzf /tmp/al.tgz -C /tmp actionlint
+          /tmp/actionlint -color

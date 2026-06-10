@@ -1,0 +1,22 @@
+---
+# Ansible collections baked into the dmf-init appliance image.
+#
+# dmf-init is the Ansible CONTROLLER for the sandbox bootstrap (it runs the
+# bootstrap-sandbox-* playbooks locally, targeting the node via SSH + the k3s
+# cluster via kubeconfig). Curated to ONLY the collections those playbooks call
+# as modules — verified by usage scan, not the full `ansible` community bundle
+# (~436 MB of mostly-unused collections):
+#   kubernetes.core   helm, helm_repository, k8s, k8s_info  (used hundreds of times)
+#   community.general ini_file, random_string, json_query filter
+#   ansible.posix     authorized_key
+# Deliberately NOT included (they belong to the in-cluster AWX Execution
+# Environment, not dmf-init): netbox.netbox (nb_inventory runs in the EE),
+# community.docker, ansible.netcommon — none are called as modules by the
+# bootstrap playbooks. Versions mirror dmf-infra/.../ee/requirements.yml.
+collections:
+  - name: kubernetes.core
+    version: ">=5.0.0,<6.0.0"
+  - name: community.general
+    version: ">=9.0.0,<11.0.0"
+  - name: ansible.posix
+    version: ">=1.6.0,<2.0.0"

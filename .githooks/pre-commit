@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit — secret scan via gitleaks.
+#
+# Mirrors the umbrella DMF Platform pre-commit hook for sub-repos.
+# Refuses any commit whose staged changes match a gitleaks rule from
+# the .gitleaks.toml at the repo root.
+#
+# Activate once per clone:
+#   bin/install-hooks.sh
+#
+# Bypass (rare):
+#   git commit --no-verify
+
+set -euo pipefail
+
+if command -v gitleaks >/dev/null 2>&1; then
+    if ! gitleaks protect --staged --no-banner --redact >/dev/null 2>&1; then
+        echo "" >&2
+        echo "[pre-commit] gitleaks: leak detected in staged changes — refusing commit" >&2
+        echo "  inspect:        gitleaks protect --staged -v" >&2
+        echo "  allowlist FP:   edit .gitleaks.toml (path / regex)" >&2
+        echo "  bypass (rare):  git commit --no-verify" >&2
+        exit 1
+    fi
+elif [ "${GITLEAKS_HOOK_QUIET:-0}" != "1" ]; then
+    echo "[pre-commit] WARN: gitleaks not installed — skipping secret scan." >&2
+    echo "             brew install gitleaks (silence with GITLEAKS_HOOK_QUIET=1)" >&2
+fi
