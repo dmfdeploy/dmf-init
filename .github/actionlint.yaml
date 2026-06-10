@@ -1,0 +1,5 @@
+# Allow the GitHub-hosted arm64 runner label used by build-bundle.yml so the
+# pinned actionlint (1.7.7) in guard.yml does not flag it as unknown.
+self-hosted-runner:
+  labels:
+    - ubuntu-24.04-arm

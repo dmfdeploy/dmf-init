@@ -1,0 +1,64 @@
+name: build-bundle
+# Build the SELF-CONTAINED dmf-init appliance bundle (component repos baked in for
+# offline/air-gapped use). build-bundle.sh does a single-arch `docker build`, so we
+# build per-arch on native runners:
+#   - nightly + manual dispatch -> rolling 'latest' (per-arch workflow artifact)
+#   - v* tag                    -> per-arch tarball attached to the GitHub Release
+# Components are baked at `main` (latest) by default; the build records the exact
+# baked refs in the bundle's provenance. Public repos clone with no token.
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "component repo ref to bake"
+        default: main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Build appliance bundle (${{ matrix.arch }})
+        env:
+          REF: ${{ inputs.ref || 'main' }}
+          SERVER_URL: ${{ github.server_url }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          out="$(mktemp -d)"
+          bin/build-bundle.sh -o "$out" --ref "$REF" --repo-base-url "${SERVER_URL}/${OWNER}"
+          src="$(ls "$out"/dmf-init-bundle-*.tar.gz)"
+          dest="${out}/$(basename "$src" .tar.gz)-${{ matrix.arch }}.tar.gz"
+          mv "$src" "$dest"
+          echo "ASSET=$dest" >> "$GITHUB_ENV"
+      - name: Attach to Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
+        with:
+          files: ${{ env.ASSET }}
+      - name: Upload rolling latest (schedule / dispatch)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: dmf-init-bundle-latest-${{ matrix.arch }}
+          path: ${{ env.ASSET }}
+          retention-days: 14
