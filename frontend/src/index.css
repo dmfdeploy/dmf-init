@@ -34,3 +34,16 @@ button {
 ::selection {
   background: rgba(125, 211, 252, 0.35);
 }
+
+/* Gentle breathing for the install splash logo — far subtler than
+   animate-pulse (which halves opacity and reads as blinking). */
+@keyframes dmf-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+.animate-breathe {
+  animation: dmf-breathe 3s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-breathe { animation: none; }
+}
