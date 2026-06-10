@@ -226,7 +226,11 @@ def test_manage_restore_integrity_mismatch_raises(tmp_path: Path) -> None:
     _require_tools()
     data_root, _, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
     corrupt_path = artifact_path
-    corrupt_path.write_bytes(corrupt_path.read_bytes()[:-1] + b"0")
+    # Bit-flip the last byte: writing a fixed literal could coincide with the
+    # existing byte (~1/256 per run, age output is randomized) and leave the
+    # artifact unmodified — the corruption must be guaranteed.
+    body = corrupt_path.read_bytes()
+    corrupt_path.write_bytes(body[:-1] + bytes([body[-1] ^ 0xFF]))
 
     with pytest.raises((BackupDecryptError, BackupIntegrityError)):
         run_manage_restore(
