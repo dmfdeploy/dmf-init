@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { StepProgress } from '../shared/StepProgress'
 import type { CreatePhase } from '../hooks/useCreateFlow'
 
 const CREATE_STEPS = [
@@ -17,10 +16,6 @@ type ShellProps = {
   envId?: string | null
 }
 
-// Map the create-flow phase onto rail statuses. The rail keys are UI phases,
-// not backend step ids, so statuses must be derived here — never from the
-// bootstrap stepStatuses (different key space). During the verify tail the
-// active dot returns to Install while Connect stays done.
 function railState(phase: CreatePhase): {
   activeKey: string
   statuses: Record<string, string>
@@ -52,6 +47,81 @@ function railState(phase: CreatePhase): {
   }
 }
 
+function dotColor(status: string): string {
+  switch (status) {
+    case 'ok': return 'bg-emerald-400'
+    case 'running': return 'bg-accent animate-pulse motion-reduce:animate-none'
+    case 'error': return 'bg-red-400'
+    default: return 'bg-slate-600'
+  }
+}
+
+function labelFor(status: string): string {
+  switch (status) {
+    case 'ok': return 'Done'
+    case 'running': return 'Active'
+    case 'error': return 'Error'
+    default: return 'Pending'
+  }
+}
+
+function StepRail({ steps, activeKey, statuses }: {
+  steps: typeof CREATE_STEPS
+  activeKey: string
+  statuses: Record<string, string>
+}) {
+  return (
+    <nav aria-label="Installation steps" className="flex flex-col gap-1 py-2">
+      {steps.map((step) => {
+        const isActive = step.key === activeKey
+        const status = statuses[step.key] ?? (isActive ? 'running' : 'pending')
+        return (
+          <div
+            key={step.key}
+            className={[
+              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+              isActive ? 'bg-accent/10 text-text' : 'text-muted',
+            ].join(' ')}
+            aria-current={isActive ? 'step' : undefined}
+          >
+            <span
+              className={['h-2.5 w-2.5 shrink-0 rounded-full', dotColor(status)].join(' ')}
+              aria-hidden="true"
+            />
+            <span className="font-medium">{step.label}</span>
+            <span className="ml-auto text-[11px] uppercase tracking-[0.18em]" aria-hidden="true">
+              {labelFor(status)}
+            </span>
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
+
+function LogoIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 342 300" role="img" aria-label="dmfdeploy">
+      <g transform="translate(46 42) scale(0.75)" fill="#7dd3fc">
+        <ellipse cx="101" cy="91" rx="52" ry="39" transform="rotate(-17 101 91)"/>
+        <ellipse cx="63" cy="52" rx="24" ry="8.5" transform="rotate(-24 63 52)"/>
+        <ellipse cx="146" cy="30" rx="22" ry="8.5" transform="rotate(3 146 30)"/>
+        <ellipse cx="190" cy="69" rx="22.5" ry="18" transform="rotate(45 190 69)"/>
+        <ellipse cx="166" cy="139" rx="30" ry="18.5" transform="rotate(-35 166 139)"/>
+        <ellipse cx="226" cy="139" rx="21" ry="14.5" transform="rotate(-31 226 139)"/>
+        <ellipse cx="86" cy="158" rx="26.5" ry="14.5" transform="rotate(-5 86 158)"/>
+        <ellipse cx="120" cy="198" rx="20" ry="11.5" transform="rotate(-6 120 198)"/>
+        <ellipse cx="37" cy="126" rx="17.5" ry="12" transform="rotate(68 37 126)"/>
+        <ellipse cx="26" cy="163" rx="12" ry="8" transform="rotate(67 26 163)"/>
+        <ellipse cx="202" cy="27" rx="13.5" ry="8" transform="rotate(22 202 27)"/>
+        <ellipse cx="121" cy="11" rx="11" ry="4.5" transform="rotate(-9 121 11)"/>
+        <ellipse cx="14" cy="94" rx="9.5" ry="4.8" transform="rotate(116 14 94)"/>
+        <ellipse cx="50" cy="39" rx="10" ry="3.8" transform="rotate(144 50 39)"/>
+      </g>
+    </svg>
+  )
+}
+
 export function Shell({
   mode,
   onModeChange,
@@ -59,73 +129,56 @@ export function Shell({
   children,
   envId,
 }: ShellProps) {
-  const modeDescription =
-    mode === 'create'
-      ? 'Set up a new environment: enter your details, run the install, connect your workstation, then download your recovery package.'
-      : 'Restore an existing environment from a backup to run checks, upgrades, or teardown.'
+  const rail = createPhase ? railState(createPhase) : null
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_24%),radial-gradient(circle_at_top_right,rgba(45,212,191,0.12),transparent_22%),linear-gradient(180deg,#050816_0%,#081122_45%,#050816_100%)] px-4 py-6 text-text sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-border/60 bg-bg/70 shadow-glow backdrop-blur-xl">
-        {/* Header */}
-        <header className="border-b border-border/60 px-6 py-5 sm:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-accentSoft">DMF Init</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-                {mode === 'create' ? 'Create new or manage an existing env.' : 'Manage an existing env.'}
-              </h1>
-            </div>
-            <div className="flex flex-col items-stretch gap-3 sm:items-end">
-              {/* Mode toggle */}
-              <div className="inline-flex rounded-full border border-border/70 bg-white/5 p-1 text-sm text-muted">
-                <button
-                  type="button"
-                  onClick={() => onModeChange('create')}
-                  className={[
-                    'rounded-full px-4 py-2 transition',
-                    mode === 'create' ? 'bg-accent text-bg shadow-glow' : 'text-muted hover:text-text',
-                  ].join(' ')}
-                >
-                  Create new
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onModeChange('manage')}
-                  className={[
-                    'rounded-full px-4 py-2 transition',
-                    mode === 'manage' ? 'bg-accent text-bg shadow-glow' : 'text-muted hover:text-text',
-                  ].join(' ')}
-                >
-                  Manage
-                </button>
-              </div>
-              {/* Status pill */}
-              <div className="rounded-full border border-border/70 bg-white/5 px-4 py-2 text-sm text-muted">
-                <span className="text-text">
-                  {createPhase ? createPhase.charAt(0).toUpperCase() + createPhase.slice(1) : 'Idle'}
-                </span>
-                {envId ? <span className="ml-2">· {envId}</span> : null}
-              </div>
-            </div>
+    <div className="flex h-screen flex-col bg-bg text-text">
+      {/* Slim topbar */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex items-center gap-3">
+          <LogoIcon className="h-7 w-auto" />
+          <span className="text-sm font-semibold tracking-wide text-text">dmfdeploy <span className="text-muted font-normal">init</span></span>
+        </div>
+        <div className="flex items-center gap-3">
+          {envId && <span className="hidden text-xs text-muted sm:inline">{envId}</span>}
+          <div className="inline-flex rounded-lg border border-border bg-panel p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => onModeChange('create')}
+              className={[
+                'rounded-md px-3 py-1.5 transition',
+                mode === 'create' ? 'bg-accent/15 text-accent font-semibold' : 'text-muted hover:text-text',
+              ].join(' ')}
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange('manage')}
+              className={[
+                'rounded-md px-3 py-1.5 transition',
+                mode === 'manage' ? 'bg-accent/15 text-accent font-semibold' : 'text-muted hover:text-text',
+              ].join(' ')}
+            >
+              Manage
+            </button>
           </div>
-          <p className="mt-4 max-w-3xl text-sm leading-6 text-muted">{modeDescription}</p>
-        </header>
+        </div>
+      </header>
 
-        {/* StepProgress rail — persistent across all create phases */}
-        {mode === 'create' && createPhase && (
-          <div className="border-b border-border/40 px-6 py-3 sm:px-8">
-            <StepProgress
-              steps={CREATE_STEPS}
-              activeKey={railState(createPhase).activeKey}
-              stepStatuses={railState(createPhase).statuses}
-            />
-          </div>
-        )}
+      {/* Body: left rail + content */}
+      <div className="flex flex-1 overflow-hidden">
+        {mode === 'create' && rail ? (
+          <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
+            <StepRail steps={CREATE_STEPS} activeKey={rail.activeKey} statuses={rail.statuses} />
+          </aside>
+        ) : null}
 
-        {/* Content */}
-        <div className="flex-1 px-6 py-6 lg:px-8">{children}</div>
+        {/* Central content pane — scroll only internally where needed */}
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          {children}
+        </main>
       </div>
-    </main>
+    </div>
   )
 }

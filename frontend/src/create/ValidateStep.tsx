@@ -85,8 +85,6 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
   const [startError, setStartError] = useState<string | null>(null)
   const [pkgDownloaded, setPkgDownloaded] = useState<boolean | null>(null)
 
-  // Validation also reports whether the recovery package was downloaded —
-  // the other half of "safe to delete".
   useEffect(() => {
     let cancelled = false
     fetch(`/api/package/${encodeURIComponent(envId)}/status`, {
@@ -98,9 +96,7 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
         if (!cancelled && payload) setPkgDownloaded(Boolean(payload.downloaded_at))
       })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [envId])
 
   const handleEvent = useCallback(
@@ -142,7 +138,6 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
     [],
   )
 
-  // Stream hook — transport only
   const { logs, cursor, reconnectNote, streamError } = useEventStream({
     runId: state.runId,
     onEvent: handleEvent,
@@ -155,10 +150,7 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
       const response = await fetch('/api/bootstrap/doctor', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ env_id: envId }),
       })
       if (!response.ok) {
@@ -166,9 +158,6 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
         throw new Error(text)
       }
       const data = (await response.json()) as { run_id: string }
-      // The stream will pick up from runId; run_start event will set steps
-      // We need to set runId so the stream hook starts
-      // But we don't know steps yet — set a minimal state
       dispatch({ type: 'run_started', runId: data.run_id, steps: ['doctor'] })
     } catch (error) {
       setStartError(error instanceof Error ? error.message : String(error))
@@ -178,17 +167,17 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
   }
 
   return (
-    <div className="grid gap-6">
-      <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
+    <div className="mx-auto max-w-2xl grid gap-4">
+      <div className="rounded-lg border border-border bg-panel p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Validate</p>
-            <h2 className="mt-2 text-2xl font-semibold text-text">Doctor check</h2>
-            <p className="mt-2 text-sm leading-6 text-muted">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">Validate</p>
+            <h2 className="mt-0.5 text-lg font-semibold text-text">Doctor check</h2>
+            <p className="mt-1 text-sm text-muted">
               Re-run the doctor check to verify cluster health.
             </p>
             {pkgDownloaded !== null && (
-              <p className="mt-2 text-sm leading-6" aria-live="polite">
+              <p className="mt-1.5 text-sm" aria-live="polite">
                 {pkgDownloaded ? (
                   <span className="text-emerald-200">✓ Recovery package downloaded.</span>
                 ) : (
@@ -202,51 +191,51 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
           <button
             type="button"
             onClick={onBack}
-            className="rounded-2xl border border-border/70 bg-white/5 px-4 py-2 text-sm text-text transition hover:bg-white/8"
+            className="rounded-lg border border-border bg-white/5 px-3 py-1.5 text-sm text-text transition hover:bg-white/8"
           >
-            ← Back to Finish
+            ← Back
           </button>
         </div>
 
         {startError && (
-          <div className="mt-4 rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
+          <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-100">
             {startError}
           </div>
         )}
 
         {!state.runId && (
-          <div className="mt-5">
+          <div className="mt-3">
             <button
               type="button"
               onClick={runDoctor}
               disabled={busy}
-              className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? 'Starting…' : 'Run doctor check'}
             </button>
           </div>
         )}
-      </section>
+      </div>
 
       {state.runId && (
         <>
           {/* Step rail */}
-          <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-            <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="rounded-lg border border-border bg-panel p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Doctor steps</p>
-                <p className="mt-1 text-sm text-muted">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted">Doctor steps</p>
+                <p className="mt-0.5 text-sm text-muted">
                   {state.currentStep ? `Current: ${state.currentStep}` : 'Waiting…'}
                 </p>
               </div>
-              {reconnectNote ? (
-                <div className="rounded-full border border-border/70 bg-white/5 px-3 py-1 text-xs text-muted">
+              {reconnectNote && (
+                <span className="rounded-md border border-border bg-bg px-2 py-0.5 text-[11px] text-muted">
                   {reconnectNote}
-                </div>
-              ) : null}
+                </span>
+              )}
             </div>
 
-            <div className="grid gap-3">
+            <div className="grid gap-1.5">
               {state.steps.length ? (
                 state.steps.map((step) => {
                   const status = state.stepStatuses[step] ?? 'pending'
@@ -255,67 +244,51 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
                     <div
                       key={step}
                       className={[
-                        'rounded-2xl border p-4 transition',
-                        isCurrent ? 'border-accent/40 bg-accent/10' : 'border-border/70 bg-black/20',
+                        'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition',
+                        isCurrent ? 'bg-accent/10 text-text' : 'text-muted',
                       ].join(' ')}
                     >
-                      <div className="flex flex-wrap items-center gap-3">
-                        <StatusDot status={status} />
-                        <span className="text-sm font-medium text-text">{step}</span>
-                      </div>
+                      <StatusDot status={status} />
+                      <span className="font-medium">{step}</span>
                     </div>
                   )
                 })
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 bg-black/20 p-4 text-sm text-muted">
-                  Waiting for doctor steps…
-                </div>
+                <p className="text-sm text-muted">Waiting for doctor steps…</p>
               )}
             </div>
-          </section>
+          </div>
 
           {/* Terminal states */}
           {state.terminal?.kind === 'complete' && (
-            <section className="rounded-3xl border border-emerald-400/30 bg-emerald-400/10 p-5">
-              <p className="text-xs uppercase tracking-[0.34em] text-emerald-200">Complete</p>
-              <h3 className="mt-2 text-2xl font-semibold text-text">Doctor check passed.</h3>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                All doctor checks completed successfully.
-              </p>
-            </section>
+            <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Complete</p>
+              <h3 className="mt-0.5 text-lg font-semibold text-text">Doctor check passed.</h3>
+              <p className="mt-1 text-sm text-muted">All doctor checks completed successfully.</p>
+            </div>
           )}
 
           {state.terminal?.kind === 'error' && (
-            <section className="rounded-3xl border border-red-500/30 bg-red-500/10 p-5">
-              <p className="text-xs uppercase tracking-[0.34em] text-red-200">Error</p>
-              <h3 className="mt-2 text-2xl font-semibold text-text">Doctor check failed.</h3>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-red-200">Error</p>
+              <h3 className="mt-0.5 text-lg font-semibold text-text">Doctor check failed.</h3>
               {state.terminal.error && (
-                <p className="mt-3 text-sm leading-6 text-red-100">{state.terminal.error}</p>
+                <p className="mt-1 text-sm text-red-100">{state.terminal.error}</p>
               )}
-            </section>
+            </div>
           )}
 
           {streamError && !state.terminal && (
-            <section className="rounded-3xl border border-red-500/30 bg-red-500/10 p-5">
-              <p className="text-xs uppercase tracking-[0.34em] text-red-200">Transport</p>
-              <h3 className="mt-2 text-lg font-semibold text-text">Stream issue</h3>
-              <p className="mt-3 text-sm leading-6 text-red-100">{streamError}</p>
-            </section>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-red-200">Transport</p>
+              <h3 className="mt-0.5 text-base font-semibold text-text">Stream issue</h3>
+              <p className="mt-1 text-sm text-red-100">{streamError}</p>
+            </div>
           )}
 
           {/* Collapsible log */}
           <Disclosure summary="Show details" defaultOpen={false}>
-            <div className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Doctor log</p>
-                </div>
-                <div className="rounded-full border border-border/70 bg-white/5 px-3 py-1 text-xs text-muted">
-                  {cursor} events
-                </div>
-              </div>
-              <LogConsole logs={logs as LogEntry[]} cursor={cursor} id="validate-log-console" />
-            </div>
+            <LogConsole logs={logs as LogEntry[]} cursor={cursor} id="validate-log-console" maxHeight="16rem" />
           </Disclosure>
         </>
       )}

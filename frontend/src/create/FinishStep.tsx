@@ -71,7 +71,6 @@ export function FinishStep({ checkpoints, terminal, envId, onRevalidate }: Finis
       anchor.click()
       anchor.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 0)
-      // The server records completion when the stream finished; reflect it.
       await refreshStatus()
     } catch (error) {
       setPkgError(error instanceof Error ? error.message : String(error))
@@ -83,26 +82,24 @@ export function FinishStep({ checkpoints, terminal, envId, onRevalidate }: Finis
   const cp3 = checkpoints.find((c) => c.n === 3)
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto max-w-2xl grid gap-4">
       {/* Error state */}
       {isError && (
-        <section className="rounded-3xl border border-red-500/30 bg-red-500/10 p-5">
-          <p className="text-xs uppercase tracking-[0.34em] text-red-200">Error</p>
-          <h2 className="mt-2 text-2xl font-semibold text-text">Bootstrap stopped.</h2>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-red-200">Error</p>
+          <h2 className="mt-1 text-lg font-semibold text-text">Bootstrap stopped.</h2>
           {terminal.error && (
-            <p className="mt-3 text-sm leading-6 text-red-100">{terminal.error}</p>
+            <p className="mt-1.5 text-sm text-red-100">{terminal.error}</p>
           )}
-        </section>
+        </div>
       )}
 
-      {/* Package + safe-to-delete: amber until the package download completed,
-          green after — the server records stream completion (Art. 1: we state
-          what we know; verify the file on your side via MANIFEST.json). */}
+      {/* Package + safe-to-delete */}
       {isComplete && (
         <section
           aria-live="polite"
           className={[
-            'rounded-[1.75rem] border p-5 shadow-glow',
+            'rounded-lg border p-4',
             downloaded
               ? 'border-emerald-400/30 bg-emerald-400/10'
               : 'border-amber-500/40 bg-amber-500/10',
@@ -110,27 +107,27 @@ export function FinishStep({ checkpoints, terminal, envId, onRevalidate }: Finis
         >
           <p
             className={[
-              'text-xs uppercase tracking-[0.34em]',
+              'text-xs uppercase tracking-[0.2em]',
               downloaded ? 'text-emerald-200' : 'text-amber-300',
             ].join(' ')}
           >
             {downloaded ? 'Safe to delete this container' : 'One step left'}
           </p>
-          <h2 className="mt-2 text-2xl font-semibold text-text">
+          <h2 className="mt-1 text-lg font-semibold text-text">
             {downloaded ? 'Your recovery package is saved.' : 'Download your recovery package.'}
           </h2>
-          <p className="mt-3 text-sm leading-6 text-muted">
+          <p className="mt-1.5 text-sm text-muted">
             {downloaded
               ? 'Keep the package and your passphrase in separate places; together they are the only way to manage or recover this environment.'
-              : 'One zip with everything to keep: the encrypted backup (checkpoint #3), the cluster CA certificate, and a README with the workstation reference. Your passphrase is NOT inside — store it separately.'}
+              : 'One zip with the encrypted backup (checkpoint #3), the cluster CA certificate, and a README with the workstation reference. Your passphrase is NOT inside — store it separately.'}
           </p>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => void downloadPackage()}
               disabled={pkgBusy}
-              className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {pkgBusy ? 'Preparing…' : downloaded ? 'Download again' : 'Download package'}
             </button>
@@ -142,33 +139,33 @@ export function FinishStep({ checkpoints, terminal, envId, onRevalidate }: Finis
             ) : null}
           </div>
 
-          {cp3 ? (
-            <p className="mt-3 text-xs leading-5 text-muted">
+          {cp3 && (
+            <p className="mt-2 text-xs text-muted">
               Backup inside: {cp3.artifact_name}
             </p>
-          ) : null}
+          )}
 
-          {pkgError ? (
-            <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
+          {pkgError && (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-100">
               {pkgError}
             </div>
-          ) : null}
+          )}
         </section>
       )}
 
       {/* Re-validate */}
       {isComplete && (
-        <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-          <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Optional</p>
-          <h3 className="mt-2 text-xl font-semibold text-text">Re-validate the cluster</h3>
-          <p className="mt-2 text-sm leading-6 text-muted">
+        <section className="rounded-lg border border-border bg-panel p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted">Optional</p>
+          <h3 className="mt-1 text-base font-semibold text-text">Re-validate the cluster</h3>
+          <p className="mt-1 text-sm text-muted">
             Run a doctor check to verify cluster health after bootstrap.
           </p>
-          <div className="mt-4">
+          <div className="mt-3">
             <button
               type="button"
               onClick={onRevalidate}
-              className="rounded-2xl border border-border/70 bg-white/5 px-5 py-3 text-sm font-semibold text-text transition hover:bg-white/8"
+              className="rounded-lg border border-border bg-white/5 px-4 py-2 text-sm font-semibold text-text transition hover:bg-white/8"
             >
               Re-validate
             </button>

@@ -1,26 +1,29 @@
 @import "tailwindcss";
 
 @theme {
-  --bg: #050816;
-  --panel: rgba(10, 16, 30, 0.92);
-  --accent: #7dd3fc;
-  --accent-soft: #67e8f9;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
-  --border: rgba(148, 163, 184, 0.18);
+  /* Tailwind v4: only --color-* names generate color utilities
+     (bg-accent, text-muted, border-border, ...). */
+  --color-bg: #0b121f;
+  --color-panel: #151e2d;
+  --color-sidebar: #111927;
+  --color-accent: #7dd3fc;
+  --color-accentSoft: #67e8f9;
+  --color-text: #e2e8f0;
+  --color-muted: #9ca3af;
+  --color-border: #1f2937;
 }
 
 html {
   color-scheme: dark;
-  background: var(--bg);
+  background: var(--color-bg);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: "Avenir Next", "Avenir", "Helvetica Neue", "Segoe UI", sans-serif;
 }
 
