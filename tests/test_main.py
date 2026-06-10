@@ -584,3 +584,97 @@ def test_bad_env_id_rejected_on_bootstrap_start(tmp_path: Path) -> None:
     )
     assert response2.status_code in {400, 422}
     assert "env_id must match" in response2.text
+
+
+def _seed_render_env(data_root: Path, env_id: str) -> Path:
+    """Materialize a minimal create-flow env (env dir + render.json + age key)."""
+    env_dir = data_root / "envs" / env_id
+    render_dir = data_root / "runs" / env_id
+    env_dir.mkdir(parents=True)
+    render_dir.mkdir(parents=True)
+    age_key_path = render_dir / "age" / "keys.txt"
+    age_key_path.parent.mkdir(parents=True, exist_ok=True)
+    age_key_path.write_text("AGE-SECRET-KEY-1TEST\n", encoding="utf-8")
+    answers_file_path = render_dir / "answers.yaml"
+    answers_file_path.write_text("operator: test\n", encoding="utf-8")
+    (render_dir / "render.json").write_text(
+        json.dumps(
+            {
+                "env_id": env_id,
+                "profile": "sandbox-single-node",
+                "schema_version": 1,
+                "render_dir": str(render_dir),
+                "age_key_path": str(age_key_path),
+                "answers_file_path": str(answers_file_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return age_key_path
+
+
+def test_bootstrap_doctor_streams_complete_for_create_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dmf_init.orchestrate import CommandStep, SubprocessExecutor
+
+    data_root = tmp_path / "data"
+    env_id = "sandbox-doctor"
+    age_key_path = _seed_render_env(data_root, env_id)
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    launch = client.get(f"/?token={token}", follow_redirects=False)
+    assert launch.status_code in {302, 307}
+
+    # Drive the real run_worker over a fake executor so the stream really
+    # reaches `complete` without shelling out to bootstrap-secrets.sh.
+    class _FakeExecutor(SubprocessExecutor):
+        def run(self, step: CommandStep):
+            yield "doctor: all checks passed", None
+            yield "", 0
+
+    captured: dict[str, object] = {}
+
+    def fake_build_env_doctor_run(env_id_arg, age_key_arg, data_root_arg, *, executor=None):
+        captured["env_id"] = env_id_arg
+        captured["age_key"] = age_key_arg
+        return BootstrapRun(
+            run_id="doctor-run",
+            steps=[CommandStep(id="doctor", argv=["ignored"])],
+            executor=_FakeExecutor(),
+        )
+
+    monkeypatch.setattr(
+        "dmf_init.main.build_env_doctor_run", fake_build_env_doctor_run
+    )
+
+    response = client.post("/api/bootstrap/doctor", json={"env_id": env_id})
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    assert run_id == "doctor-run"
+    assert captured["env_id"] == env_id
+    assert str(captured["age_key"]) == str(age_key_path)
+
+    with client.stream("GET", f"/api/bootstrap/stream/{run_id}?from=0") as stream:
+        events = [json.loads(line) for line in stream.iter_lines() if line]
+
+    kinds = [event["event"] for event in events]
+    assert "run_start" in kinds
+    assert {"event": "step_complete", "step": "doctor", "status": "ok"} in events
+    assert events[-1]["event"] == "complete"
+
+
+def test_bootstrap_doctor_unknown_env_returns_404(tmp_path: Path) -> None:
+    app = create_app(Settings(data_root=tmp_path / "data", tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    launch = client.get(f"/?token={token}", follow_redirects=False)
+    assert launch.status_code in {302, 307}
+
+    response = client.post("/api/bootstrap/doctor", json={"env_id": "sandbox-missing"})
+    assert response.status_code == 404
