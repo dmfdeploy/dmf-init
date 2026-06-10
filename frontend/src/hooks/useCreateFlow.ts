@@ -54,6 +54,9 @@ function determinePhase(state: CreateState): CreatePhase {
   // step + last log lines (errors-as-content). FinishStep only ever shows the
   // happy "safe to delete" package, which requires verify + checkpoint #3.
   if (state.terminal?.kind === 'complete') return 'finish'
+  // A terminal error with no runId (e.g. bootstrap/start failed) must still
+  // land on the install view's error state — never back on Configure.
+  if (state.terminal?.kind === 'error') return 'installing'
 
   if (!state.runId) return 'configure'
 
@@ -269,12 +272,12 @@ export function useCreateFlow() {
           throw new Error(text)
         }
 
-        const data = (await response.json()) as { run_id: string }
+          const data = (await response.json()) as { run_id: string }
         // Update runId in state; the stream will handle the rest
         dispatch({
           type: 'run_started',
           runId: data.run_id,
-          steps: state.steps, // will be overwritten by run_start event
+          steps: [], // will be overwritten by the run_start stream event
         })
       } catch (error) {
         dispatch({
@@ -283,7 +286,10 @@ export function useCreateFlow() {
         })
       }
     },
-    [state.steps],
+    // No state deps: this callback must be referentially stable, or effects
+    // depending on it re-fire on every reducer change (field-found: a 'start'
+    // reset re-armed the auto-start effect into a 409 request stampede).
+    [],
   )
 
   // resumePause
