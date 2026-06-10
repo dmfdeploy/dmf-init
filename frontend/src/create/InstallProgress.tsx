@@ -25,7 +25,7 @@ type InstallProgressProps = {
 const stepOrder = [
   'pre-seed', 'checkpoint-2', 'unseal', 'seed-bao',
   'post-seed', 'configure',
-  'ca-cert', 'hosts-map', 'passkey',
+  'workstation', 'passkey',
   'verify', 'checkpoint-3',
 ]
 
@@ -37,8 +37,7 @@ function stepDisplayName(step: string): string {
     'seed-bao': 'Seed Bao',
     'post-seed': 'Post-seed',
     'configure': 'Configure',
-    'ca-cert': 'CA Cert',
-    'hosts-map': 'Hosts Map',
+    'workstation': 'Workstation prep',
     'passkey': 'Passkey',
     'verify': 'Verify',
     'checkpoint-3': 'Checkpoint #3',
