@@ -1,10 +1,10 @@
 type StatusState = 'pending' | 'running' | 'ok' | 'error'
 
 const dotClassMap: Record<StatusState, string> = {
-  running: 'bg-accent shadow-[0_0_0_4px_rgba(125,211,252,0.15)] animate-pulse',
-  ok: 'bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]',
-  error: 'bg-red-400 shadow-[0_0_0_4px_rgba(248,113,113,0.15)]',
-  pending: 'bg-slate-500/80',
+  running: 'bg-accent',
+  ok: 'bg-emerald-400',
+  error: 'bg-red-400',
+  pending: 'bg-slate-600',
 }
 
 const labelMap: Record<StatusState, string> = {
@@ -30,7 +30,7 @@ export function StatusDot({
       />
       <span className="sr-only">{displayLabel}</span>
       <span
-        className="rounded-full border border-border/70 bg-white/5 px-2.5 py-0.5 text-[11px] uppercase tracking-[0.22em] text-muted"
+        className="rounded-md border border-border bg-panel px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-muted"
         aria-hidden="true"
       >
         {displayLabel}

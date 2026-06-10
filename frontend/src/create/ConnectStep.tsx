@@ -50,34 +50,25 @@ export function ConnectStep({
   const [passkeyCount, setPasskeyCount] = useState<{ confirmed: number; required: number } | null>(null)
   const stationRef = useRef<HTMLDivElement>(null)
 
-  // Move focus to active station on change
   useEffect(() => {
     if (activePause && stationRef.current) {
       stationRef.current.focus()
     }
   }, [activePause?.pause_id])
 
-  // Poll passkey count when passkey pause is active
   useEffect(() => {
     if (activePause?.pause_id !== 'passkey' || !runId) return
     let cancelled = false
     const interval = setInterval(async () => {
       const result = await pollPasskey(runId)
-      if (!cancelled && result) {
-        setPasskeyCount(result)
-      }
+      if (!cancelled && result) setPasskeyCount(result)
     }, 3000)
-    // Initial poll
     pollPasskey(runId).then((r) => {
       if (!cancelled && r) setPasskeyCount(r)
     })
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
+    return () => { cancelled = true; clearInterval(interval) }
   }, [activePause?.pause_id, runId, pollPasskey])
 
-  // Download CA certificate
   function downloadCaCertificate(payload: CaCertPayload) {
     const blob = new Blob([payload.pem], { type: 'application/x-pem-file' })
     const objectUrl = URL.createObjectURL(blob)
@@ -90,7 +81,6 @@ export function ConnectStep({
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
   }
 
-  // Hosts map helpers
   function shellQuote(value: string): string {
     return `'${value.replaceAll("'", "'\\''")}'`
   }
@@ -109,63 +99,59 @@ export function ConnectStep({
 
   if (!activePause) {
     return (
-      <div className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-        <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Connect</p>
-        <h2 className="mt-2 text-2xl font-semibold text-text">Waiting for operator pauses…</h2>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          The bootstrap will pause here when it needs your attention.
-        </p>
+      <div className="flex flex-col items-center justify-center gap-2 py-16">
+        <p className="text-sm text-muted">Waiting for operator pauses…</p>
       </div>
     )
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto max-w-3xl">
       <section
         ref={stationRef}
         tabIndex={-1}
         role="region"
         aria-label={`Active station: ${activePause.title}`}
         aria-live="polite"
-        className="rounded-[1.75rem] border border-accent/30 bg-panel/80 p-5 shadow-glow backdrop-blur"
+        className="rounded-lg border border-border bg-panel p-4"
       >
-        <div className="flex items-start justify-between gap-4">
+        <div className="mb-3 flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Active station</p>
-            <h2 className="mt-2 text-2xl font-semibold text-text">{activePause.title}</h2>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted">Active station</p>
+            <h2 className="mt-0.5 text-base font-semibold text-text">{activePause.title}</h2>
           </div>
-          <span className="rounded-full border border-border/70 bg-white/5 px-3 py-1 text-xs text-muted">
+          <span className="rounded-md border border-border bg-bg px-2 py-0.5 text-[11px] text-muted">
             {activePause.pause_id}
           </span>
         </div>
 
-        {/* Station content — fixed-height slots to prevent reflow */}
-        <div className="mt-5 grid gap-4" style={{ minHeight: '16rem' }}>
-          {/* Workstation station: CA trust + hosts mapping, one Continue */}
+        {/* Station content */}
+        <div className="grid gap-4">
+          {/* Workstation station: CA trust + hosts mapping */}
           {activePause.pause_id === 'workstation' && (
-            <>
-              <p className="text-xs uppercase tracking-[0.28em] text-accentSoft">
-                1 · Trust the DMF Local CA
-              </p>
-              <CaCertStation
-                payload={(activePause.payload as unknown as WorkstationPayload).ca}
-                onDownload={downloadCaCertificate}
-              />
-              <p className="mt-2 text-xs uppercase tracking-[0.28em] text-accentSoft">
-                2 · Map cluster hostnames
-              </p>
-              <HostsMapStation
-                payload={(activePause.payload as unknown as WorkstationPayload).hosts}
-                onCopy={copyHostsMap}
-                onCopyCommand={async () => {
-                  await copyText(
-                    hostsMapCommand(
-                      (activePause.payload as unknown as WorkstationPayload).hosts.entries,
-                    ),
-                  )
-                }}
-              />
-            </>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted">1 · Trust the DMF Local CA</p>
+                <CaCertStation
+                  payload={(activePause.payload as unknown as WorkstationPayload).ca}
+                  onDownload={downloadCaCertificate}
+                />
+              </div>
+              <div className="grid gap-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted">2 · Map cluster hostnames</p>
+                <HostsMapStation
+                  payload={(activePause.payload as unknown as WorkstationPayload).hosts}
+                  onCopy={copyHostsMap}
+                  onCopyCommand={async () => {
+                    await copyText(
+                      hostsMapCommand(
+                        (activePause.payload as unknown as WorkstationPayload).hosts.entries,
+                      ),
+                    )
+                  }}
+                />
+              </div>
+            </div>
           )}
 
           {/* Passkey station */}
@@ -182,19 +168,19 @@ export function ConnectStep({
 
         {/* Error */}
         {resumeError && (
-          <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
+          <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-100">
             {resumeError}
           </div>
         )}
 
         {/* Continue button */}
-        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3">
           {activePause.pause_id === 'passkey' ? (
             <button
               type="button"
               onClick={onVerifyPasskey}
               disabled={passkeyChecking || resumeBusy}
-              className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {passkeyChecking ? 'Checking…' : resumeBusy ? 'Continuing…' : 'Verify & Continue'}
             </button>
@@ -203,15 +189,15 @@ export function ConnectStep({
               type="button"
               disabled={resumeBusy}
               onClick={onResume}
-              className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {resumeBusy ? 'Continuing…' : "I've completed these steps → Continue"}
+              {resumeBusy ? 'Continuing…' : 'Continue'}
             </button>
           )}
-          <span className="text-sm text-muted">
+          <span className="text-xs text-muted">
             {activePause.pause_id === 'passkey'
               ? 'The station stays active until the passkey check confirms the required count.'
-              : 'The station stays active until the pause is resumed.'}
+              : 'The bootstrap will continue once resumed.'}
           </span>
         </div>
       </section>
@@ -229,47 +215,41 @@ function CaCertStation({
   onDownload: (p: CaCertPayload) => void
 }) {
   return (
-    <>
-      <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4">
-        <p className="text-sm font-semibold text-amber-300">
-          Required step — passkeys will not work without this.
+    <div className="grid gap-3">
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+        <p className="text-sm font-medium text-amber-300">
+          Required on desktop Chrome/Chromium — enrollment fails silently there.
         </p>
-        <p className="mt-1 text-sm leading-6 text-muted">
-          If the DMF Local CA is not trusted, WebAuthn passkey enrollment fails silently:
-          &quot;Registration cancelled or timed out&quot; means the browser treated
-          the origin as non-secure, NOT that you cancelled anything.
+        <p className="mt-1 text-sm leading-5 text-muted">
+          Other browsers may proceed after a warning. Install the CA to avoid trust warnings on every service.
         </p>
       </div>
       {payload.requirement_note && (
-        <p className="text-sm leading-6 text-muted">{payload.requirement_note}</p>
+        <p className="text-sm leading-5 text-muted">{payload.requirement_note}</p>
       )}
-      <p className="text-sm leading-6 text-muted">
-        Download the CA certificate and install it in your browser&apos;s trust store.
-        The PEM is public.
-      </p>
       {payload.present ? (
         <>
-          <pre className="max-h-48 overflow-auto rounded-3xl border border-border/70 bg-black/30 p-4 text-xs leading-6 text-text">
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg/80 p-2.5 text-xs leading-5 text-text">
             {payload.pem}
           </pre>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => onDownload(payload)}
-              className="rounded-2xl border border-accent/30 bg-accent px-5 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5"
+              className="rounded-lg border border-accent/30 bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:bg-accent/90"
             >
               Download
             </button>
-            <span className="text-sm text-muted">{payload.filename}</span>
+            <span className="text-xs text-muted">{payload.filename}</span>
           </div>
           <CaInstall payload={payload} />
         </>
       ) : (
-        <div className="rounded-2xl border border-border/70 bg-white/5 p-4 text-sm text-muted">
-          <p>{payload.note || 'The CA certificate is not available yet.'}</p>
+        <div className="rounded-lg border border-border bg-panel/60 p-3 text-sm text-muted">
+          {payload.note || 'The CA certificate is not available yet.'}
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -286,50 +266,47 @@ function HostsMapStation({
   const [copiedCmd, setCopiedCmd] = useState(false)
 
   return (
-    <>
-      <p className="text-sm leading-6 text-muted">{payload.note}</p>
-      <p className="text-sm leading-6 text-muted">{payload.dns_note}</p>
-      <div className="grid gap-4">
-        <div className="rounded-3xl border border-border/70 bg-black/30 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.24em] text-accentSoft">/etc/hosts entries</p>
-            <button
-              type="button"
-              onClick={async () => {
-                await onCopy(payload)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
-              }}
-              className="rounded-2xl border border-border/70 bg-white/5 px-4 py-2 text-xs font-semibold text-text transition hover:bg-white/10"
-            >
-              {copied ? '✓ Copied' : 'Copy'}
-            </button>
-          </div>
-          <pre className="mt-3 max-h-48 overflow-auto rounded-2xl border border-border/70 bg-slate-950/80 p-3 text-xs leading-6 text-text">
-            {payload.entries.join('\n') || 'No entries yet.'}
-          </pre>
+    <div className="grid gap-3">
+      <p className="text-sm leading-5 text-muted">{payload.note}</p>
+      <div className="rounded-lg border border-border bg-panel/60 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted">/etc/hosts entries</p>
+          <button
+            type="button"
+            onClick={async () => {
+              await onCopy(payload)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            }}
+            className="shrink-0 rounded-md border border-border bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-text transition hover:bg-white/10"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
         </div>
-        <div className="rounded-3xl border border-border/70 bg-black/30 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.24em] text-accentSoft">One-liner</p>
-            <button
-              type="button"
-              onClick={async () => {
-                await onCopyCommand()
-                setCopiedCmd(true)
-                setTimeout(() => setCopiedCmd(false), 2000)
-              }}
-              className="rounded-2xl border border-border/70 bg-white/5 px-4 py-2 text-xs font-semibold text-text transition hover:bg-white/10"
-            >
-              {copiedCmd ? '✓ Copied' : 'Copy'}
-            </button>
-          </div>
-          <pre className="mt-3 max-h-48 overflow-auto rounded-2xl border border-border/70 bg-slate-950/80 p-3 text-xs leading-6 text-text">
-            {`printf '%s\\n' ${payload.entries.map((e) => `'${e.replaceAll("'", "'\\''")}'`).join(' ')} | sudo tee -a /etc/hosts >/dev/null`}
-          </pre>
-        </div>
+        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">
+          {payload.entries.join('\n') || 'No entries yet.'}
+        </pre>
       </div>
-    </>
+      <div className="rounded-lg border border-border bg-panel/60 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted">One-liner</p>
+          <button
+            type="button"
+            onClick={async () => {
+              await onCopyCommand()
+              setCopiedCmd(true)
+              setTimeout(() => setCopiedCmd(false), 2000)
+            }}
+            className="shrink-0 rounded-md border border-border bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-text transition hover:bg-white/10"
+          >
+            {copiedCmd ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-[11px] leading-5 text-text">
+          {`printf '%s\\n' ${payload.entries.map((e) => `'${e.replaceAll("'", "'\\''")}'`).join(' ')} | sudo tee -a /etc/hosts >/dev/null`}
+        </pre>
+      </div>
+    </div>
   )
 }
 
@@ -349,15 +326,15 @@ function PasskeyStation({
   const displayCount = passkeyCount ?? { confirmed: payload.confirmed, required: payload.required }
 
   return (
-    <>
-      <p className="text-sm leading-6 text-muted">{payload.hint}</p>
-      <div className="grid gap-3 rounded-3xl border border-border/70 bg-black/30 p-4">
-        <div className="grid gap-2 text-sm leading-6 text-muted">
-          <div>
-            A. Open the enrollment link:
+    <div className="grid gap-3">
+      <p className="text-sm leading-5 text-muted">{payload.hint}</p>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-2 rounded-lg border border-border bg-panel/60 p-3 text-sm">
+          <div className="text-muted">
+            A. Open the enrollment link:{' '}
             {payload.enrollment_url ? (
               <a
-                className="ml-2 inline-flex w-fit rounded-2xl border border-border/70 bg-white/5 px-3 py-1.5 text-text transition hover:bg-white/8"
+                className="inline-block rounded-md border border-border bg-white/5 px-2 py-1 text-xs text-text transition hover:bg-white/8"
                 href={payload.enrollment_url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -365,42 +342,39 @@ function PasskeyStation({
                 {payload.enrollment_url}
               </a>
             ) : (
-              <span className="ml-2 text-text">
+              <span className="text-text">
                 {displayCount.confirmed >= displayCount.required
                   ? `already enrolled (${displayCount.confirmed}/${displayCount.required})`
                   : 'No enrollment URL is available yet.'}
               </span>
             )}
           </div>
-          <div>
+          <div className="text-muted">
             B. In Console, open Create new device invitation and complete enrollment.
           </div>
-          <div className="text-text">Operator username: {payload.confirmed >= 0 ? '' : ''}</div>
         </div>
-      </div>
-
-      {payload.enrollment_url && (
-        <div className="flex flex-col items-start gap-2 rounded-3xl border border-border/70 bg-black/30 p-4">
-          <p className="text-xs uppercase tracking-[0.24em] text-accentSoft">Scan to enroll on phone</p>
-          <div className="rounded-2xl border border-border/70 bg-white/5 p-3">
-            <QRCodeSVG value={payload.enrollment_url} size={160} level="M" />
+        {payload.enrollment_url && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-panel/60 p-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted">Scan to enroll on phone</p>
+            <div className="rounded-md border border-border bg-white/5 p-2">
+              <QRCodeSVG value={payload.enrollment_url} size={120} level="M" />
+            </div>
+            <p className="text-[11px] leading-4 text-muted">
+              A <span className="text-text">.test</span> domain won&apos;t resolve off-network.
+            </p>
           </div>
-          <p className="text-[11px] leading-5 text-muted">
-            Note: a QR for a <span className="text-text">.test</span> domain won&apos;t resolve on a phone off-network — mainly useful for real-domain cloud envs.
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-3">
+        )}
+      </div>
+      <div className="flex items-center gap-3">
         {passkeyStatus && (
-          <span className="rounded-full border border-border/70 bg-white/5 px-3 py-1 text-xs text-muted">
+          <span className="rounded-md border border-border bg-panel px-2 py-0.5 text-[11px] text-muted">
             {passkeyStatus}
           </span>
         )}
-        <span className="text-sm text-muted" aria-live="polite">
+        <span className="text-xs text-muted" aria-live="polite">
           Passkey: {displayCount.confirmed}/{displayCount.required} confirmed
         </span>
       </div>
-    </>
+    </div>
   )
 }

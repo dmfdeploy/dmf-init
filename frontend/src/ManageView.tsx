@@ -72,12 +72,12 @@ async function fetchJson<T>(url: string, body: unknown): Promise<T> {
 function badgeClass(tone: 'error' | 'info'): string {
   return tone === 'error'
     ? 'border-red-500/30 bg-red-500/10 text-red-100'
-    : 'border-accent/30 bg-accent/10 text-accentSoft'
+    : 'border-accent/30 bg-accent/10 text-muted'
 }
 
 function checkpointBadge(checkpoint: ManageCheckpoint) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-accentSoft">
+    <span className="inline-flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
       <span>#{checkpoint.n} sealed</span>
       <span className="normal-case tracking-normal text-muted">{checkpoint.artifact_name}</span>
     </span>
@@ -220,10 +220,10 @@ function ManageConsole(props: { runId: string; title?: string; onTerminal?: () =
         : ''
 
   return (
-    <section className="rounded-[1.75rem] border border-border/70 bg-panel/90 p-5 shadow-glow backdrop-blur">
-      <div className="flex flex-col gap-4 border-b border-border/60 pb-5 lg:flex-row lg:items-end lg:justify-between">
+    <section className="rounded-lg border border-border bg-panel p-4  ">
+      <div className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Manage console</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-muted">Manage console</p>
           <h3 className="mt-2 text-2xl font-semibold text-text">
             {props.title ?? 'Streamed manage run'}
           </h3>
@@ -232,38 +232,38 @@ function ManageConsole(props: { runId: string; title?: string; onTerminal?: () =
             sealed checkpoint after the manage action completes.
           </p>
         </div>
-        <div className="rounded-full border border-border/70 bg-white/5 px-4 py-2 text-sm text-muted">
+        <div className="rounded-md border border-border bg-bg/60 px-4 py-2 text-sm text-muted">
           <span className="text-text">{runStatus}</span>
           <span className="ml-2">· {props.runId}</span>
         </div>
       </div>
 
       {reconnectNote && (
-        <div className="mt-4 rounded-2xl border border-border/70 bg-white/5 px-4 py-3 text-sm text-muted">
+        <div className="mt-4 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-muted">
           {reconnectNote}
         </div>
       )}
 
       {streamError && (
-        <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
           {streamError}
         </div>
       )}
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
         {/* Step rail */}
-        <div className="rounded-3xl border border-border/70 bg-black/20 p-4">
+        <div className="rounded-lg border border-border bg-bg/60 p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Steps</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Steps</p>
               <p className="mt-1 text-sm text-muted">Current step: {state.currentStep ?? 'waiting'}</p>
             </div>
             {state.terminal?.kind === 'complete' ? (
-              <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-accentSoft">
+              <span className="rounded-md border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
                 Complete
               </span>
             ) : state.terminal?.kind === 'error' ? (
-              <span className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-red-100">
+              <span className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-100">
                 Error
               </span>
             ) : null}
@@ -273,12 +273,12 @@ function ManageConsole(props: { runId: string; title?: string; onTerminal?: () =
               stepsByStatus.map((step) => (
                 <div
                   key={step.id}
-                  className="flex items-center gap-3 rounded-2xl border border-border/60 bg-white/5 px-3 py-3"
+                  className="flex items-center gap-3 rounded-lg border border-border bg-bg/60 px-3 py-3"
                 >
                   <StatusDot status={step.status as 'pending' | 'running' | 'ok' | 'error'} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-text">{step.id}</div>
-                    <div className="text-xs uppercase tracking-[0.28em] text-muted">
+                    <div className="text-xs uppercase tracking-[0.18em] text-muted">
                       {step.status === 'running'
                         ? 'Running'
                         : step.status === 'ok'
@@ -291,7 +291,7 @@ function ManageConsole(props: { runId: string; title?: string; onTerminal?: () =
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-border/60 px-3 py-5 text-sm text-muted">
+              <div className="rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted">
                 Waiting for streamed events...
               </div>
             )}
@@ -309,13 +309,13 @@ function ManageConsole(props: { runId: string; title?: string; onTerminal?: () =
         </div>
 
         {/* Log pane — shared LogConsole with auto-scroll */}
-        <div className="rounded-3xl border border-border/70 bg-black/20 p-4">
+        <div className="rounded-lg border border-border bg-bg/60 p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Log</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Log</p>
               <p className="mt-1 text-sm text-muted">Redacted streamed output</p>
             </div>
-            <div className="rounded-full border border-border/70 bg-white/5 px-3 py-1 text-xs text-muted">
+            <div className="rounded-md border border-border bg-bg/60 px-3 py-1 text-xs text-muted">
               {cursor} events
             </div>
           </div>
@@ -452,35 +452,35 @@ export default function ManageView() {
   }
 
   const restoreSummary = restoreResult ? (
-    <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
+    <section className="rounded-lg border border-border bg-panel p-4  ">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Verified restore</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-muted">Verified restore</p>
           <h2 className="mt-2 text-2xl font-semibold text-text">Env {restoreResult.env_id}</h2>
         </div>
-        <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-accentSoft">
+        <span className="rounded-md border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
           {restoreResult.verified ? 'verified' : 'unverified'}
         </span>
       </div>
       <div className="mt-4 grid gap-3 text-sm text-muted">
-        <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-          <div className="text-xs uppercase tracking-[0.28em] text-muted">Profile</div>
+        <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
+          <div className="text-xs uppercase tracking-[0.18em] text-muted">Profile</div>
           <div className="mt-1 text-text">{restoreResult.profile}</div>
         </div>
-        <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-          <div className="text-xs uppercase tracking-[0.28em] text-muted">Schema / checkpoint</div>
+        <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
+          <div className="text-xs uppercase tracking-[0.18em] text-muted">Schema / checkpoint</div>
           <div className="mt-1 text-text">
             {restoreResult.schema_version}
             {restoreResult.checkpoint !== null ? ` · #${restoreResult.checkpoint}` : ''}
           </div>
         </div>
-        <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-          <div className="text-xs uppercase tracking-[0.28em] text-muted">Repos</div>
+        <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
+          <div className="text-xs uppercase tracking-[0.18em] text-muted">Repos</div>
           <div className="mt-2 grid gap-2">
             {restoreResult.repos.map((repo) => (
               <div
                 key={repo.name}
-                className="rounded-2xl border border-border/70 bg-black/20 px-3 py-2"
+                className="rounded-lg border border-border bg-bg/60 px-3 py-2"
               >
                 <div className="font-medium text-text">{repo.name}</div>
                 <div className="text-xs text-muted">{repoLine(repo)}</div>
@@ -507,7 +507,7 @@ export default function ManageView() {
                   type="file"
                   accept=".tar.age"
                   onChange={(event) => setUploadedFile(event.target.files?.[0] ?? null)}
-                  className="rounded-2xl border border-border/80 bg-white/5 px-4 py-3 text-sm text-text file:mr-4 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-accentSoft file:cursor-pointer"
+                  className="rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-text file:mr-4 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-muted file:cursor-pointer"
                 />
                 {uploadedFile && (
                   <p className="mt-2 text-xs text-muted">Selected: {uploadedFile.name}</p>
@@ -527,7 +527,7 @@ export default function ManageView() {
                 type="button"
                 onClick={restoreSession}
                 disabled={restoreBusy || !uploadedFile}
-                className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg  disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {restoreBusy ? 'Restoring…' : 'Restore & verify'}
               </button>
@@ -536,7 +536,7 @@ export default function ManageView() {
               </p>
             </div>
             {restoreError && (
-              <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
                 {restoreError}
               </div>
             )}
@@ -544,20 +544,20 @@ export default function ManageView() {
         </div>
 
         <div className="grid gap-6">
-          <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Manage flow</p>
+          <section className="rounded-lg border border-border bg-panel p-4  ">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">Manage flow</p>
             <h2 className="mt-2 text-xl font-semibold text-text">Restore, verify, then manage</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
               Upload the backup, enter the passphrase, and once verified you can run manage actions.
             </p>
             <div className="mt-4 grid gap-3 text-sm text-muted">
-              <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
+              <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
                 1. Upload and verify the backup artifact.
               </div>
-              <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
+              <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
                 2. Review the verified env summary and repo provenance.
               </div>
-              <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
+              <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
                 3. Run a manage action (playbook, upgrade, rotate, teardown).
               </div>
             </div>
@@ -574,13 +574,13 @@ export default function ManageView() {
           <div className="grid gap-6">
             {restoreSummary}
 
-            <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
+            <section className="rounded-lg border border-border bg-panel p-4  ">
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={runDoctor}
                   disabled={manageBusy || activeRunLive}
-                  className="rounded-2xl border border-border/70 bg-white/5 px-5 py-3 text-sm font-semibold text-text transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-bg/60 px-4 py-2 text-sm font-semibold text-text transition hover:bg-bg/80 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Run doctor
                 </button>
@@ -590,7 +590,7 @@ export default function ManageView() {
               )}
               {banner && (
                 <div
-                  className={`mt-4 rounded-3xl border px-4 py-3 text-sm ${badgeClass(banner.tone)}`}
+                  className={`mt-4 rounded-lg border px-3 py-2 text-sm ${badgeClass(banner.tone)}`}
                 >
                   {banner.text}
                 </div>
@@ -599,14 +599,14 @@ export default function ManageView() {
           </div>
 
           <div className="grid gap-6">
-            <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Verified restore</p>
+            <section className="rounded-lg border border-border bg-panel p-4  ">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Verified restore</p>
               <h2 className="mt-2 text-xl font-semibold text-text">What you can do next</h2>
               <p className="mt-3 text-sm leading-6 text-muted">
                 Doctor is read-only. Mutating actions stream under the same session with a new
                 re-backup checkpoint.
               </p>
-              <div className="mt-4 rounded-3xl border border-border/70 bg-white/5 p-4 text-sm text-muted">
+              <div className="mt-4 rounded-lg border border-border bg-bg/60 p-4 text-sm text-muted">
                 <p className="text-text">Restored paths</p>
                 <div className="mt-2 grid gap-2">
                   <div>Age key: {restoreResult.age_key_path}</div>
@@ -619,14 +619,14 @@ export default function ManageView() {
         </div>
 
         <div className="mt-6">
-          <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Actions</p>
+          <section className="rounded-lg border border-border bg-panel p-4  ">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">Actions</p>
             <h2 className="mt-2 text-2xl font-semibold text-text">Mutating manage actions</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
               Every action ends with a re-backup checkpoint saved as a downloadable artifact.
             </p>
             <div className="mt-5 grid gap-4">
-              <div className="rounded-3xl border border-border/70 bg-white/5 p-4">
+              <div className="rounded-lg border border-border bg-bg/60 p-4">
                 <Field label="Rerun playbook" hint="Path under repos/">
                   <Input
                     value={playbook}
@@ -639,7 +639,7 @@ export default function ManageView() {
                     type="button"
                     onClick={() => startAction('rerun-playbook')}
                     disabled={manageBusy || activeRunLive}
-                    className="rounded-2xl border border-accent/30 bg-accent px-5 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg  disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Rerun playbook
                   </button>
@@ -656,7 +656,7 @@ export default function ManageView() {
                 ).map(([action, label]) => (
                   <div
                     key={action}
-                    className="rounded-3xl border border-border/70 bg-white/5 p-4"
+                    className="rounded-lg border border-border bg-bg/60 p-4"
                   >
                     <p className="text-sm font-semibold text-text">{label}</p>
                     <p className="mt-2 text-sm text-muted">
@@ -681,7 +681,7 @@ export default function ManageView() {
                             activeRunLive ||
                             teardownConfirm.trim().toLowerCase() !== 'tear down'
                           }
-                          className="rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-100 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-100 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Yes, tear down
                         </button>
@@ -691,7 +691,7 @@ export default function ManageView() {
                         type="button"
                         onClick={() => startAction(action)}
                         disabled={manageBusy || activeRunLive}
-                        className="mt-4 rounded-2xl border border-border/70 bg-white/5 px-5 py-3 text-sm font-semibold text-text transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="mt-4 rounded-lg border border-border bg-bg/60 px-4 py-2 text-sm font-semibold text-text transition hover:bg-bg/80 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {label}
                       </button>
@@ -706,7 +706,7 @@ export default function ManageView() {
               </p>
               {banner && (
                 <div
-                  className={`mt-4 rounded-3xl border px-4 py-3 text-sm ${badgeClass(banner.tone)}`}
+                  className={`mt-4 rounded-lg border px-3 py-2 text-sm ${badgeClass(banner.tone)}`}
                 >
                   {banner.text}
                 </div>
@@ -723,8 +723,8 @@ export default function ManageView() {
               onTerminal={() => setActiveRunLive(false)}
             />
           ) : (
-            <section className="rounded-[1.75rem] border border-border/70 bg-panel/80 p-5 shadow-glow backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.34em] text-accentSoft">Stream</p>
+            <section className="rounded-lg border border-border bg-panel p-4  ">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Stream</p>
               <h2 className="mt-2 text-xl font-semibold text-text">Console appears here</h2>
               <p className="mt-3 text-sm leading-6 text-muted">
                 Start doctor or an action to stream the manage run over the bootstrap stream

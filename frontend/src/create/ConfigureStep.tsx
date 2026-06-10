@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Field, Input, SectionCard, TextArea } from '../ui'
+import { Field, Input, TextArea } from '../ui'
 
 type OperatorForm = {
   username: string
@@ -35,115 +35,90 @@ const defaultOperator: OperatorForm = {
   display: 'Marty McFly',
 }
 
+type Page = 0 | 1 | 2 | 3
+
 export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
   const [operator, setOperator] = useState(defaultOperator)
   const [sandbox, setSandbox] = useState(defaultSandbox)
   const [passphrase, setPassphrase] = useState('')
   const [passphraseConfirm, setPassphraseConfirm] = useState('')
-  const [showReview, setShowReview] = useState(false)
+  const [page, setPage] = useState<Page>(0)
   const [localError, setLocalError] = useState<string | null>(null)
 
-  function validate(): string | null {
-    if (!operator.username.trim()) return 'Username is required.'
-    if (!operator.email.trim() || !operator.email.includes('@')) return 'A valid email is required.'
-    if (!operator.display.trim()) return 'Display name is required.'
-    if (!sandbox.label.trim()) return 'Sandbox label is required.'
-    if (!passphrase) return 'Passphrase is required.'
-    if (passphrase !== passphraseConfirm) return 'Passphrase entries do not match.'
-    return null
+  // Validation per page
+  function validatePage(p: Page): string | null {
+    switch (p) {
+      case 0: // Identity
+        if (!operator.username.trim()) return 'Username is required.'
+        if (!operator.email.trim() || !operator.email.includes('@')) return 'A valid email is required.'
+        if (!operator.display.trim()) return 'Display name is required.'
+        return null
+      case 1: // Target
+        if (!sandbox.label.trim()) return 'Sandbox label is required.'
+        if (!sandbox.nodeIp.trim()) return 'Node IP is required.'
+        if (!sandbox.ansibleUser.trim()) return 'Ansible user is required.'
+        if (!sandbox.iface.trim()) return 'Interface is required.'
+        if (!sandbox.sshPrivateKey.trim())
+          return 'SSH private key is required — paste it or load a key file.'
+        return null
+      case 2: // Security
+        if (!passphrase) return 'Passphrase is required.'
+        if (passphrase !== passphraseConfirm) return 'Passphrase entries do not match.'
+        return null
+      case 3: // Review
+        return null
+    }
   }
 
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault()
+  function handleNext() {
     setLocalError(null)
-    const validationError = validate()
-    if (validationError) {
-      setLocalError(validationError)
-      return
-    }
-    setShowReview(true)
+    const err = validatePage(page)
+    if (err) { setLocalError(err); return }
+    if (page < 3) setPage((p) => (p + 1) as Page)
   }
 
-  function handleConfirmStart(e: FormEvent) {
+  function handleBack() {
+    setLocalError(null)
+    if (page > 0) setPage((p) => (p - 1) as Page)
+  }
+
+  function handleDeploy(e: FormEvent) {
     e.preventDefault()
     setLocalError(null)
-    const validationError = validate()
-    if (validationError) {
-      setLocalError(validationError)
-      return
-    }
+    const err = validatePage(3) || validatePage(2) || validatePage(1) || validatePage(0)
+    if (err) { setLocalError(err); return }
     onSubmit(operator, sandbox, passphrase)
   }
 
-  if (showReview) {
-    return (
-      <form onSubmit={handleConfirmStart} className="grid gap-6">
-        <SectionCard
-          title="Review your configuration"
-          description="Confirm these values before starting the install."
-          eyebrow="Configure"
-        >
-          <div className="grid gap-3 text-sm">
-            <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.28em] text-muted">Operator</div>
-              <div className="mt-1 text-text">
-                {operator.display} ({operator.username}) · {operator.email}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.28em] text-muted">Sandbox</div>
-              <div className="mt-1 text-text">
-                Label: {sandbox.label}
-                {sandbox.nodeIp ? ` · Node IP: ${sandbox.nodeIp}` : ''}
-                <br />
-                Ansible user: {sandbox.ansibleUser} · Interface: {sandbox.iface}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.28em] text-muted">SSH key</div>
-              <div className="mt-1 text-text">
-                {sandbox.sshPrivateKey
-                  ? `${sandbox.sshPrivateKey.slice(0, 40)}…`
-                  : '(not provided)'}
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-
-        {(localError || error) ? (
-          <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
-            {localError || error}
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setShowReview(false)}
-            className="rounded-2xl border border-border/70 bg-white/5 px-6 py-3 text-sm font-semibold text-text transition hover:bg-white/8"
-          >
-            ← Back to edit
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? 'Starting…' : 'Start install'}
-          </button>
-        </div>
-      </form>
-    )
-  }
+  const pageTitles = ['Operator identity', 'Target node', 'Security', 'Review & Deploy']
+  const pageHints = [
+    'Who is commissioning this environment.',
+    'The node this installer will provision.',
+    'One passphrase protects every backup — store it in your password manager.',
+    'Confirm everything looks right, then deploy.',
+  ]
 
   return (
-    <form className="grid gap-6" onSubmit={handleSubmit}>
-      <div className="grid gap-6">
-        <SectionCard
-          title="Operator identity"
-          description="This identity is written into the sandbox wizard answers file."
-        >
-          <div className="grid gap-4 md:grid-cols-3">
+    <div className="mx-auto flex min-h-full max-w-2xl flex-col justify-center pb-16">
+      {/* Page indicator */}
+      <div className="mb-4 flex items-center gap-1.5">
+        {[0, 1, 2, 3].map((p) => (
+          <span
+            key={p}
+            className={['h-1.5 flex-1 rounded-full transition', p === page ? 'bg-accent' : p < page ? 'bg-accent/40' : 'bg-border'].join(' ')}
+          />
+        ))}
+      </div>
+
+      <form onSubmit={page === 3 ? handleDeploy : (e) => { e.preventDefault(); handleNext() }} className="grid gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-text">{pageTitles[page]}</h2>
+          <p className="mt-0.5 text-sm text-muted">{pageHints[page]}</p>
+        </div>
+
+        {/* Page 0: Identity */}
+        {page === 0 && (
+          <div className="grid gap-3 md:grid-cols-3">
             <Field label="Username">
               <Input
                 value={operator.username}
@@ -164,48 +139,47 @@ export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
               />
             </Field>
           </div>
-        </SectionCard>
+        )}
 
-        <SectionCard
-          title="Sandbox inputs"
-          description="These mirror the wizard's sandbox answers-file fields."
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Sandbox label" hint="The DNS-safe subdomain label">
-              <Input
-                value={sandbox.label}
-                onChange={(e) => setSandbox((p) => ({ ...p, label: e.target.value }))}
+        {/* Page 1: Target */}
+        {page === 1 && (
+          <div className="grid gap-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Sandbox label" hint="DNS-safe subdomain label">
+                <Input
+                  value={sandbox.label}
+                  onChange={(e) => setSandbox((p) => ({ ...p, label: e.target.value }))}
+                />
+              </Field>
+              <Field label="Node IP">
+                <Input
+                  value={sandbox.nodeIp}
+                  onChange={(e) => setSandbox((p) => ({ ...p, nodeIp: e.target.value }))}
+                />
+              </Field>
+              <Field label="Ansible user">
+                <Input
+                  value={sandbox.ansibleUser}
+                  onChange={(e) => setSandbox((p) => ({ ...p, ansibleUser: e.target.value }))}
+                />
+              </Field>
+              <Field label="Interface">
+                <Input
+                  value={sandbox.iface}
+                  onChange={(e) => setSandbox((p) => ({ ...p, iface: e.target.value }))}
+                />
+              </Field>
+            </div>
+            <Field label="SSH private key" hint="Paste or load a local file.">
+              <TextArea
+                value={sandbox.sshPrivateKey}
+                onChange={(e) => setSandbox((p) => ({ ...p, sshPrivateKey: e.target.value }))}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                className="min-h-20"
               />
             </Field>
-            <Field label="Node IP">
-              <Input
-                value={sandbox.nodeIp}
-                onChange={(e) => setSandbox((p) => ({ ...p, nodeIp: e.target.value }))}
-              />
-            </Field>
-            <Field label="Ansible user">
-              <Input
-                value={sandbox.ansibleUser}
-                onChange={(e) => setSandbox((p) => ({ ...p, ansibleUser: e.target.value }))}
-              />
-            </Field>
-            <Field label="Interface">
-              <Input
-                value={sandbox.iface}
-                onChange={(e) => setSandbox((p) => ({ ...p, iface: e.target.value }))}
-              />
-            </Field>
-          </div>
-          <Field label="SSH private key" hint="Paste it or load a local file; the backend writes it into tmpfs.">
-            <TextArea
-              value={sandbox.sshPrivateKey}
-              onChange={(e) => setSandbox((p) => ({ ...p, sshPrivateKey: e.target.value }))}
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            />
-          </Field>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-white/5 px-4 py-2 text-sm text-text transition hover:bg-white/8">
-              <span>Load key file</span>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-panel px-3 py-1.5 text-sm text-text transition hover:bg-white/5">
+              Load key file
               <input
                 className="hidden"
                 type="file"
@@ -218,15 +192,12 @@ export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
                 }}
               />
             </label>
-            <span className="text-sm text-muted">The wizard generates everything else.</span>
           </div>
-        </SectionCard>
+        )}
 
-        <SectionCard
-          title="Passphrase"
-          description="The same operator passphrase wraps the checkpoint #1 backup."
-        >
-          <div className="grid gap-4 md:grid-cols-2">
+        {/* Page 2: Security */}
+        {page === 2 && (
+          <div className="grid gap-3 md:grid-cols-2">
             <Field label="Passphrase">
               <Input
                 type="password"
@@ -242,28 +213,73 @@ export function ConfigureStep({ onSubmit, busy, error }: ConfigureStepProps) {
               />
             </Field>
           </div>
-        </SectionCard>
-      </div>
+        )}
 
-      {(localError || error) ? (
-        <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
-          {localError || error}
+        {/* Page 3: Review & Deploy */}
+        {page === 3 && (
+          <div className="grid gap-3 text-sm">
+            <div className="rounded-lg border border-border bg-panel/60 p-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-muted">Operator</div>
+              <div className="mt-1 text-text">
+                {operator.display} ({operator.username}) · {operator.email}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-panel/60 p-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-muted">Sandbox</div>
+              <div className="mt-1 text-text">
+                Label: {sandbox.label}
+                {sandbox.nodeIp ? ` · Node IP: ${sandbox.nodeIp}` : ''}
+                <br />
+                Ansible user: {sandbox.ansibleUser} · Interface: {sandbox.iface}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-panel/60 p-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-muted">SSH key</div>
+              <div className="mt-1 text-text">
+                {/* Never echo private-key material, even truncated. */}
+                {sandbox.sshPrivateKey
+                  ? `✓ provided (${sandbox.sshPrivateKey.trim().split('\n').length} lines)`
+                  : '(not provided)'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(localError || error) && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
+            {localError || error}
+          </div>
+        )}
+
+        {/* Navigation */}
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <button
+            type="button"
+            onClick={handleBack}
+            disabled={page === 0}
+            className="rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ← Back
+          </button>
+          {page < 3 ? (
+            <button
+              type="submit"
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90"
+            >
+              Next →
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-lg border border-accent/30 bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? 'Deploying…' : 'Deploy'}
+            </button>
+          )}
         </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-2xl border border-accent/30 bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {busy ? 'Working…' : 'Review & start install'}
-        </button>
-        <p className="text-sm text-muted">
-          Session protected. The browser should already have the launch token exchanged.
-        </p>
-      </div>
-    </form>
+      </form>
+    </div>
   )
 }
 
