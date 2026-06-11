@@ -58,3 +58,21 @@ jobs:
           persist-credentials: false
       - run: |
           docker build -t dmf-init:ci .
+
+  working-model:
+    # Working-model block sync (umbrella issue dmfdeploy/dmfdeploy#32): the
+    # agent-context block in CLAUDE.md/AGENTS.md/QWEN.md must stay byte-identical
+    # to the umbrella template; --strict fails on a missing or drifted block.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2 — umbrella: canonical template + checker
+        with:
+          repository: dmfdeploy/dmfdeploy
+          path: .umbrella
+          persist-credentials: false
+      - name: Working-model block sync (strict)
+        run: .umbrella/bin/check-working-model-sync.sh --repo . --strict --template .umbrella/docs/templates/working-model-block.md
