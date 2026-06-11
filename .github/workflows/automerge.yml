@@ -1,0 +1,39 @@
+name: automerge
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, labeled, unlabeled]
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: automerge-${{ github.event.pull_request.number }}
+jobs:
+  automerge:
+    # Metadata-only — no checkout, never executes PR code, and under
+    # pull_request_target the BASE branch's workflow definition runs, so a PR
+    # cannot alter this job to its own advantage. It only arms GitHub-native
+    # rebase auto-merge: the actual merge happens when (and only when) the
+    # branch ruleset is satisfied — CODEOWNERS approval + every required
+    # status check green. Working-model mechanism: dmfdeploy/dmfdeploy#34.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Arm rebase auto-merge (hold label disarms)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -eu
+          case " ${PR_LABELS} " in *" hold "*)
+            gh pr merge --disable-auto "${PR_URL}" || true
+            echo "hold label present — auto-merge disarmed"
+            exit 0 ;;
+          esac
+          if [ "${PR_DRAFT}" = "true" ]; then
+            echo "draft PR — skipping"
+            exit 0
+          fi
+          gh pr merge --auto --rebase "${PR_URL}"
+          echo "auto-merge (rebase) armed — merges when approval + required checks are satisfied"
