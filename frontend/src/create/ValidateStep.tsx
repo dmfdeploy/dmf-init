@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useEventStream } from '../hooks/useEventStream'
 import { StatusDot } from '../shared/StatusDot'
 import { Disclosure } from '../shared/Disclosure'
@@ -143,7 +143,7 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
     onEvent: handleEvent,
   })
 
-  async function runDoctor() {
+  const runDoctor = useCallback(async () => {
     setBusy(true)
     setStartError(null)
     try {
@@ -164,7 +164,17 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
     } finally {
       setBusy(false)
     }
-  }
+  }, [envId])
+
+  // Arriving here means the operator already chose to validate (Re-validate on
+  // Finish) — start the doctor run immediately instead of asking again. The
+  // button below remains as the retry affordance if the start fails.
+  const autoStartedRef = useRef(false)
+  useEffect(() => {
+    if (autoStartedRef.current) return
+    autoStartedRef.current = true
+    void runDoctor()
+  }, [runDoctor])
 
   return (
     <div className="mx-auto max-w-2xl grid gap-4">
@@ -207,11 +217,11 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
           <div className="mt-3">
             <button
               type="button"
-              onClick={runDoctor}
+              onClick={() => void runDoctor()}
               disabled={busy}
               className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {busy ? 'Starting…' : 'Run doctor check'}
+              {busy ? 'Starting…' : startError ? 'Retry doctor check' : 'Run doctor check'}
             </button>
           </div>
         )}
