@@ -102,6 +102,50 @@ export function InstallProgress({
     }
   }, [currentStep, installStart])
 
+  // Per-step elapsed, so long playbook steps visibly accumulate time
+  const [stepStart, setStepStart] = useState<number | null>(null)
+  useEffect(() => {
+    setStepStart(currentStep ? Date.now() : null)
+  }, [currentStep])
+  const stepElapsed = useElapsed(stepStart)
+
+  // Within-step task ticker: the long steps (pre-seed, post-seed, configure)
+  // are Ansible playbooks whose log stream carries `TASK [...]` headers. Count
+  // them for the current step so the operator sees forward motion between
+  // step_complete events. Honest counter only — the playbook's total task
+  // count isn't known up front, so no within-step percentage. Scans logs
+  // incrementally; rescans from 0 when the step changes or the log array
+  // shrinks (stream replay).
+  const [taskInfo, setTaskInfo] = useState<{ count: number; name: string } | null>(null)
+  const taskScanRef = useRef({ scanned: 0, step: null as string | null, count: 0, name: '' })
+  useEffect(() => {
+    const scan = taskScanRef.current
+    if (scan.step !== currentStep || logs.length < scan.scanned) {
+      scan.step = currentStep
+      scan.scanned = 0
+      scan.count = 0
+      scan.name = ''
+      setTaskInfo(null)
+    }
+    if (!currentStep) return
+    for (; scan.scanned < logs.length; scan.scanned++) {
+      const entry = logs[scan.scanned]
+      if (entry.step !== currentStep) continue
+      const match = /^TASK \[([^\]]*)\]/.exec(entry.line)
+      if (match) {
+        scan.count += 1
+        scan.name = match[1].trim()
+      }
+    }
+    if (scan.count > 0) {
+      setTaskInfo((prev) =>
+        prev && prev.count === scan.count && prev.name === scan.name
+          ? prev
+          : { count: scan.count, name: scan.name },
+      )
+    }
+  }, [logs, currentStep])
+
   // Completed step count for honest progress
   const completedCount = Object.values(stepStatuses).filter((s) => s === 'ok').length
   const totalSteps = steps.length
@@ -164,7 +208,22 @@ export function InstallProgress({
         <p className="mt-0.5 text-base font-medium text-text">
           {currentStep ? stepDisplayName(currentStep) : 'Finalizing…'}
         </p>
-        {elapsed && <p className="mt-0.5 text-xs text-muted">Elapsed: {elapsed}</p>}
+        {/* Within-step task counter — fixed-height slot, no reflow. Hidden
+            from screen readers like the raw ticker below; 'step N of M'
+            stays the accessible progress signal. */}
+        <div className="mt-0.5 h-5 overflow-hidden" aria-hidden="true">
+          {taskInfo && (
+            <p className="truncate text-xs text-muted">
+              task {taskInfo.count} · {taskInfo.name}
+            </p>
+          )}
+        </div>
+        {elapsed && (
+          <p className="mt-0.5 text-xs text-muted">
+            Elapsed: {elapsed}
+            {stepElapsed && currentStep ? ` · this step: ${stepElapsed}` : ''}
+          </p>
+        )}
       </div>
 
       {/* Honest progress bar */}
