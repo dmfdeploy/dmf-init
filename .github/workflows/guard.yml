@@ -111,3 +111,30 @@ jobs:
           echo "${AL_SHA256}  /tmp/al.tgz" | sha256sum -c -
           tar -xzf /tmp/al.tgz -C /tmp actionlint
           /tmp/actionlint -color
+
+  issue-link:
+    # Working-model gate (umbrella issue dmfdeploy/dmfdeploy#32): every PR must
+    # reference its tracking issue in the canonical backlog FULLY QUALIFIED —
+    # bare #N resolves to this repo's own issues and silently misses. Trivial
+    # changes: add the no-issue label.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: PR references a canonical-backlog issue (qualified)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          set -eu
+          case " ${PR_LABELS} " in *" no-issue "*)
+            echo "OK: no-issue label set"; exit 0 ;;
+          esac
+          if printf '%s' "${PR_BODY}" | grep -qiE '(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?)[[:space:]:]+(dmfdeploy/dmfdeploy#[0-9]+|https://github\.com/dmfdeploy/dmfdeploy/issues/[0-9]+)'; then
+            echo "OK: qualified issue reference found"
+            exit 0
+          fi
+          echo "FAIL: PR body must reference its tracking issue FULLY QUALIFIED, e.g. 'Refs dmfdeploy/dmfdeploy#32'." >&2
+          echo "Bare #N points at THIS repo, not the canonical backlog — see umbrella docs/WORKING-MODEL.md." >&2
+          echo "Trivial change? Add the 'no-issue' label." >&2
+          exit 1
