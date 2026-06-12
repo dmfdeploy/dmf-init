@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 from collections.abc import Iterator
@@ -441,39 +442,57 @@ def _stream_render_create_new_inner(
         if entry.is_dir()
     } if (data_root / "envs").exists() else set()
 
-    proc = subprocess.Popen(
-        [str(wizard_path), "--non-interactive", str(state.answers_file_path)],
-        cwd=wizard_path.parent,
-        env=wizard_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert proc.stdout is not None
-    with state.render_log_path.open("w", encoding="utf-8") as log_file:
-        for raw_line in proc.stdout:
-            log_file.write(raw_line)
-            log_file.flush()
-            redacted = redact_text(
-                raw_line.rstrip("\n"),
-                [
-                    request.operator.username,
-                    request.operator.email,
-                    request.operator.display,
-                    request.sandbox.ssh_private_key,
-                ],
-            )
-            if redacted:
-                state.output_lines.append(redacted)
-            env_id = _parse_env_id(raw_line)
-            if env_id and state.env_id is None:
-                state.env_id = env_id
-            yield json.dumps({"event": "log", "line": redacted}, separators=(",", ":")) + "\n"
-        return_code = proc.wait()
+    proc: subprocess.Popen | None = None
+    try:
+        proc = subprocess.Popen(
+            [str(wizard_path), "--non-interactive", str(state.answers_file_path)],
+            cwd=wizard_path.parent,
+            env=wizard_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        assert proc.stdout is not None
+        with state.render_log_path.open("w", encoding="utf-8") as log_file:
+            for raw_line in proc.stdout:
+                log_file.write(raw_line)
+                log_file.flush()
+                redacted = redact_text(
+                    raw_line.rstrip("\n"),
+                    [
+                        request.operator.username,
+                        request.operator.email,
+                        request.operator.display,
+                        request.sandbox.ssh_private_key,
+                    ],
+                )
+                if redacted:
+                    state.output_lines.append(redacted)
+                env_id = _parse_env_id(raw_line)
+                if env_id and state.env_id is None:
+                    state.env_id = env_id
+                yield json.dumps({"event": "log", "line": redacted}, separators=(",", ":")) + "\n"
+            proc.wait()
+    finally:
+        # On cancellation (GeneratorExit from client disconnect) the wizard and
+        # ALL its descendants must be terminated so the outer flag-clear does not
+        # reopen the race.  start_new_session=True makes the wizard its own
+        # session/group leader, so we kill the whole group.
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                proc.wait()
+            except Exception:
+                pass
 
-    if return_code != 0:
-        state.error = f"init-wizard failed with exit code {return_code}"
+    # Normal completion only — GeneratorExit re-raises after the finally above.
+    if proc.returncode != 0:
+        state.error = f"init-wizard failed with exit code {proc.returncode}"
         yield json.dumps({"event": "error", "error": state.error}, separators=(",", ":")) + "\n"
         return
 
