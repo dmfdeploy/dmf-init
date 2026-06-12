@@ -311,3 +311,68 @@ def test_stream_render_wraps_unexpected_failures_as_error_event(tmp_path):
     events = [_json.loads(line) for line in stream_render_create_new(tmp_path / "empty", request)]
     assert events[-1]["event"] == "error"
     assert "repos" in events[-1]["error"]
+
+
+def test_inner_generator_kills_wizard_on_close(tmp_path: Path) -> None:
+    """Regression: on GeneratorExit the wizard AND ALL its descendants must be
+    killed before the caller clears the single-flight flag.
+
+    The fake wizard spawns a BACKGROUND DESCENDANT that writes a sentinel after
+    2 seconds, then the parent sleeps 60s. We advance the generator once
+    (wizard is running), close it, wait 3s, and assert the sentinel was NOT
+    written. With the OLD parent-only kill the descendant survives (FAILS);
+    with the group-kill the descendant dies (PASSES)."""
+    import json as _json
+    import time
+
+    from dmf_init.createnew import (
+        CreateNewRenderRequest,
+        OperatorInputs,
+        SandboxInputs,
+        _stream_render_create_new_inner,
+    )
+
+    data_root = tmp_path / "data"
+    sentinel = data_root / "SENTINEL"
+
+    # Parent prints one line, spawns a background descendant, then sleeps forever.
+    wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
+    wizard.parent.mkdir(parents=True)
+    wizard.write_text(
+        "#!/bin/sh\n"
+        "echo 'env_id: sandbox-test: started'\n"
+        "sh -c 'sleep 2; touch \"$DMF_DATA_ROOT/SENTINEL\"' &\n"
+        "sleep 60\n",
+        encoding="utf-8",
+    )
+    wizard.chmod(0o755)
+
+    # Valid SSH key so pre-wizard validation passes.
+    key_path = tmp_path / "test-key"
+    subprocess.run(
+        ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key_path), "-C", "test"],
+        check=True,
+        capture_output=True,
+    )
+    ssh_key = key_path.read_text(encoding="utf-8")
+
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(username="op", email="op@dmf.test", display="Op"),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.99",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key=ssh_key,
+        ),
+    )
+    gen = _stream_render_create_new_inner(data_root, request)
+    first_event = _json.loads(next(gen))
+    assert first_event["event"] == "log", f"expected log event, got {first_event}"
+
+    # Cancel the generator — should trigger GeneratorExit, which kills the
+    # entire process group (parent + descendant).
+    gen.close()
+    time.sleep(3)  # descendant would have written sentinel at t=2 without group-kill
+
+    assert not sentinel.exists(), "descendant wrote sentinel after generator was closed"

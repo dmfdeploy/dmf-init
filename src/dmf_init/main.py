@@ -363,6 +363,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.package_downloads = {}
     # P0-1: Active operation guard — keyed by env_id, prevents concurrent ops on same env
     app.state.active_runs: dict[str, str] = {}  # env_id -> run_id
+    # Create-new single-flight guard: only one render can run at a time (no env_id
+    # exists at submit time, so this is a global lock rather than per-env).
+    app.state.createnew_lock = threading.Lock()
+    app.state.createnew_active = False
     app.add_middleware(LaunchTokenMiddleware)
     cookie_secure = settings.tls_enabled
     app.add_middleware(
@@ -413,6 +417,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="fetch repos first",
             )
 
+        # Single-flight: reject a concurrent render BEFORE it can mint a second env.
+        with app.state.createnew_lock:
+            if app.state.createnew_active:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="a create-new render is already in progress",
+                )
+            app.state.createnew_active = True
+
         def stream() -> Iterator[str]:
             try:
                 yield from stream_render_create_new(settings.data_root, payload)
@@ -421,8 +434,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     json.dumps({"event": "error", "error": str(exc)}, separators=(",", ":"))
                     + "\n"
                 )
+            finally:
+                with app.state.createnew_lock:
+                    app.state.createnew_active = False
 
-        return StreamingResponse(stream(), media_type="application/x-ndjson")
+        try:
+            return StreamingResponse(stream(), media_type="application/x-ndjson")
+        except BaseException:
+            # Construction failed before the generator could own cleanup — release.
+            with app.state.createnew_lock:
+                app.state.createnew_active = False
+            raise
+
+        # NOTE: the inner generator kills/waits for the wizard subprocess on
+        # cancellation (GeneratorExit) before this finally clears the flag,
+        # so a mid-stream disconnect cannot reopen the duplicate-env race.
+        # The only residual narrow edge is if the ASGI server never iterates
+        # the body at all (e.g. client disconnect before streaming starts) —
+        # the finally may not run. Acceptable for this short-lived localhost
+        # container (restart-recoverable). A future idempotency-key would
+        # close it fully; sequential re-submit (fresh env) remains intentional.
 
     @app.post(
         "/api/backup",

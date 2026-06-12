@@ -678,3 +678,80 @@ def test_bootstrap_doctor_unknown_env_returns_404(tmp_path: Path) -> None:
 
     response = client.post("/api/bootstrap/doctor", json={"env_id": "sandbox-missing"})
     assert response.status_code == 404
+
+
+# --- createnew single-flight guard tests ---
+
+
+def _seed_wizard_repo(data_root: Path) -> Path:
+    """Create a minimal fake wizard so /api/render passes the wizard_path check."""
+    wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
+    wizard.parent.mkdir(parents=True, exist_ok=True)
+    wizard.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    wizard.chmod(0o755)
+    return wizard
+
+
+def _render_payload() -> dict:
+    return {
+        "operator": {
+            "username": "op",
+            "email": "op@dmf.test",
+            "display": "Op",
+        },
+        "sandbox": {
+            "label": "demo",
+            "node_ip": "203.0.113.99",
+            "ansible_user": "lima",
+            "iface": "lima0",
+            "ssh_private_key": "garbage-key",
+        },
+    }
+
+
+def test_render_create_new_409_when_active(tmp_path: Path) -> None:
+    """When createnew_active is True, a second POST /api/render must return 409."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    _seed_wizard_repo(data_root)
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    client.get(f"/?token={token}", follow_redirects=False)
+
+    # Simulate an in-flight render
+    with app.state.createnew_lock:
+        app.state.createnew_active = True
+
+    response = client.post("/api/render", json=_render_payload())
+    assert response.status_code == 409
+    assert "already in progress" in response.text
+
+
+def test_render_create_new_flag_resets_after_stream(tmp_path: Path) -> None:
+    """After the stream generator finishes (even on error), createnew_active
+    must be False so a subsequent render is allowed — proves the finally fires."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    _seed_wizard_repo(data_root)
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    client.get(f"/?token={token}", follow_redirects=False)
+
+    # First render: the wizard exits 99, so the stream emits an error event
+    # and the finally releases the slot.
+    with client.stream("POST", "/api/render", json=_render_payload()) as resp:
+        assert resp.status_code == 200
+        events = [json.loads(line) for line in resp.iter_lines() if line]
+        assert events[-1]["event"] == "error"
+
+    # Flag must be released
+    assert app.state.createnew_active is False
+
+    # A second render must now be allowed (it'll also hit the fake wizard, but
+    # the important thing is it doesn't get 409).
+    with client.stream("POST", "/api/render", json=_render_payload()) as resp2:
+        assert resp2.status_code == 200
