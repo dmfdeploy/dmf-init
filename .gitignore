@@ -102,5 +102,9 @@ uv.lock
 # build-bundle.sh appliance tarball (build artifact, never commit)
 dmf-init-bundle-*.tar.gz
 
-# local AI-agent session state (qwen CLI)
+# local AI-agent session state (qwen CLI) — also the generated .qwen/skills/ view
 .qwen/
+# Per-agent skill views generated from .agents/skills/ by sync-skills.sh
+# (ADR-0042); never track. Capture scratch is local-only too.
+.claude/skills/
+.agents/skills/_inbox/
