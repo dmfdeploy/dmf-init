@@ -1,7 +1,7 @@
 # dmf-init — architecture (scaffold)
 
 > Canonical spec:
-> [`DMF Init Bootstrap Container Plan 2026-06-02`](../../docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md)
+> [`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md)
 > in the umbrella. This file is a short orientation; the plan is authoritative.
 
 ## One-paragraph summary
