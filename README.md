@@ -52,7 +52,7 @@ docker run --rm -p 127.0.0.1:8000:8000 dmf-init:bundle
 Loopback safety is the `-p 127.0.0.1:…` publish (never publish to a non-loopback
 host interface). HTTPS is opt-in (`-e DMF_TLS_ENABLED=true`) for when you reach
 it by a non-localhost address. Canonical spec:
-[`DMF Init Bootstrap Container Plan 2026-06-02`](../docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
+[`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
 
 ## Dependencies
 
