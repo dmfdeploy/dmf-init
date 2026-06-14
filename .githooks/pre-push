@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — local pre-push secret scan over the push range.
+#
+# Advisory defense-in-depth (issue dmfdeploy/dmfdeploy#21): scans the commits
+# being pushed against the repo-root .gitleaks.toml (and operator-private
+# .gitleaks.local.toml if present) so a custom identity/topology literal is
+# caught BEFORE it reaches a public remote — the gap that GitHub push-protection
+# (known-provider formats only) and CI gitleaks (runs after the branch is already
+# public) don't cover.
+#
+# This is NOT an enforceable gate: it is per-clone (needs core.hooksPath=.githooks
+# via bin/install-hooks.sh) and bypassable (git push --no-verify). The enforceable
+# backstop is GitHub push-protection + secret-scanning + the required CI gitleaks
+# check. Belt-and-suspenders, not a guarantee.
+#
+# Activate once per clone:
+#   bin/install-hooks.sh        # (or: git config core.hooksPath .githooks)
+#
+# Escape hatch:
+#   git push --no-verify ...    # bypass all hooks (use sparingly)
+
+set -euo pipefail
+
+REPO_TOP="$(git rev-parse --show-toplevel)"
+ZERO="0000000000000000000000000000000000000000"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    if [ "${GITLEAKS_HOOK_QUIET:-0}" != "1" ]; then
+        echo "[pre-push] WARN: gitleaks not installed — skipping secret scan." >&2
+        echo "           brew install gitleaks (silence with GITLEAKS_HOOK_QUIET=1)" >&2
+    fi
+    exit 0
+fi
+
+# Scan the commits described by a `git log` range/option string.
+scan_range() {
+    local range="$1"
+    if ! gitleaks detect --no-banner --redact --log-opts="$range" >/dev/null 2>&1; then
+        echo "" >&2
+        echo "[pre-push] gitleaks: leak detected in commits being pushed — refusing push" >&2
+        echo "  inspect:        gitleaks detect --log-opts=\"$range\" -v" >&2
+        echo "  allowlist FP:   edit .gitleaks.toml (path / regex)" >&2
+        echo "  bypass (rare):  git push --no-verify" >&2
+        return 1
+    fi
+    # Second pass: operator-private rules (identity/topology). The local config
+    # is gitignored; contributors without it simply skip this pass.
+    if [ -f "$REPO_TOP/.gitleaks.local.toml" ]; then
+        if ! gitleaks detect --no-banner --redact --log-opts="$range" \
+                --config "$REPO_TOP/.gitleaks.local.toml" >/dev/null 2>&1; then
+            echo "" >&2
+            echo "[pre-push] gitleaks (operator-private rules): identity/topology literal in commits being pushed — refusing push" >&2
+            echo "  inspect:  gitleaks detect --log-opts=\"$range\" -v --config .gitleaks.local.toml" >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+status=0
+# git feeds one line per pushed ref on stdin:
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    : "$local_ref" "$remote_ref"
+    [ "$local_sha" = "$ZERO" ] && continue          # deleting a remote ref — nothing to scan
+    if [ "$remote_sha" = "$ZERO" ]; then
+        range="$local_sha --not --remotes"          # new branch: only commits not yet on any remote
+    else
+        range="${remote_sha}..${local_sha}"
+    fi
+    scan_range "$range" || status=1
+done
+
+exit "$status"
