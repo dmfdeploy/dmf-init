@@ -20,6 +20,6 @@ in the umbrella repo. The three rules that matter mid-task:
    qualified** — `Closes dmfdeploy/dmfdeploy#N`; bare `#N` targets the wrong repo.
 3. **Never invent a local backlog** (TODO files, ad-hoc trackers). Issues =
    liveness; plan frontmatter = design state; ADRs = decisions (RFC in
-   Discussions first); STATUS.md = cross-repo now.
+   Discussions first); STATUS.md = committed notes; STATUS.local.md = live repo snapshot.
 <!-- WORKING-MODEL-BLOCK-END -->
 
