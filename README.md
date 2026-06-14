@@ -3,13 +3,22 @@
 **Day-0 self-contained init & bootstrap container** for the DMF Platform.
 
 A single container that puts a friendly, localhost-only web UI on the existing
-`dmf-env` env-creation + `bin/` bootstrap toolchain, drives a cluster from zero
-to verified, and offers a **passphrase-wrapped backup as a browser download** at
-each checkpoint — so the operator can commission a cluster, save the backup
-wherever they choose, and then delete the container with nothing left behind.
+[`dmf-env`](https://github.com/dmfdeploy/dmf-env) env-creation + `bin/`
+bootstrap toolchain, drives a cluster from zero to verified, and offers a
+**passphrase-wrapped backup as a browser download** at each checkpoint — so the
+operator can commission a cluster, save the backup wherever they choose, and
+then delete the container with nothing left behind.
 Reached as `http://localhost`, which is a browser **secure context** (clipboard
 + WebAuthn work) with no certificate warning; HTTPS is opt-in for non-localhost
 access.
+
+> **What you get (the deliverable):** a **commissioned, verified cluster** plus
+> one or more **passphrase-wrapped encrypted backups** (browser downloads). The
+> container is **disposable / run-once** — delete it when you're done and the
+> backups + your passphrase are all that remain. It does **not** build or emit a
+> deployable image; it *commissions a cluster*.
+
+Architecture orientation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What it does
 
@@ -56,9 +65,9 @@ it by a non-localhost address. Canonical spec:
 
 ## Dependencies
 
-- `dmf-env` — env tooling (`init-wizard.sh`, `bin/` scripts) the container wraps.
-- `dmf-infra` — generic bootstrap playbooks/roles.
-- `dmf-runbooks` — catalog launcher (post-seed).
+- [`dmf-env`](https://github.com/dmfdeploy/dmf-env) — env tooling (`init-wizard.sh`, `bin/` scripts) the container wraps.
+- [`dmf-infra`](https://github.com/dmfdeploy/dmf-infra) — generic bootstrap playbooks/roles.
+- [`dmf-runbooks`](https://github.com/dmfdeploy/dmf-runbooks) — catalog launcher (post-seed).
 
 ## License
 
