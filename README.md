@@ -43,10 +43,34 @@ Architecture orientation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Run it (appliance)
 
-The canonical image (`Dockerfile`) is public-safe and fetches the runtime repos
-at startup. For a **clean host with no source checkout** (pre-release testing),
-build a self-contained bundle that bakes the 6 runtime repos in, ships as a
-tarball, and runs with one command:
+### Prerequisites
+
+A **BuildKit-capable Docker** is mandatory — the `Dockerfile` pins
+`# syntax=docker/dockerfile:1.7` and `bin/build-bundle.sh` forces
+`DOCKER_BUILDKIT=1`, so classic builders will fail. **Docker 23.0+** is a
+sensible minimum.
+
+### Choose your path
+
+Pick based on whether the host has **runtime network access**:
+
+| | Networked host | Air-gapped host |
+|---|---|---|
+| **When** | Host can reach the internet at runtime | Host has no runtime network |
+| **Image** | `ghcr.io/dmfdeploy/dmf-init:latest` | `dmf-init:bundle` |
+| **Repos** | Fetched at startup | Baked into the tarball |
+
+**Networked** (canonical ghcr image — simplest path):
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/dmfdeploy/dmf-init:latest
+# open the http://localhost:8000/?token=... printed in the logs
+```
+
+Multi-arch (amd64 + arm64), published by
+[`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml).
+
+**Air-gapped** (bundle — repos baked in via `bin/build-bundle.sh`):
 
 ```bash
 # on a machine with Docker + the umbrella checked out:
