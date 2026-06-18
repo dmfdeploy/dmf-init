@@ -13,8 +13,10 @@
 #   --local          rsync the local sibling working trees instead (dev: bake
 #                    in-flight uncommitted work). Drops build cruft via excludes.
 #
-# PRE-RELEASE: the repos aren't public yet, so keep the tarball offline (no public
-# registry). Once published, the canonical Dockerfile's runtime-fetch is public-safe.
+# WHEN TO USE THE BUNDLE: pick this only for a target host with no network access
+# at runtime (air-gapped). The canonical Dockerfile instead fetches the repos at
+# startup — public-safe now the repos are public — so on a networked host prefer
+# `docker run ghcr.io/dmfdeploy/dmf-init:latest` over building a tarball.
 #
 # Usage:
 #   bin/build-bundle.sh [-o OUT_DIR] [--ref REF] [--local] \
