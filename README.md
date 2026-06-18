@@ -2,6 +2,8 @@
 
 **Day-0 self-contained init & bootstrap container** for the DMF Platform.
 
+> **New to the project vocabulary?** See the [DMF Glossary](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/GLOSSARY.md) for project-coined terms (appliance, checkpoint, age key, answers-file, …).
+
 A single container that puts a friendly, localhost-only web UI on the existing
 [`dmf-env`](https://github.com/dmfdeploy/dmf-env) env-creation + `bin/`
 bootstrap toolchain, drives a cluster from zero to verified, and offers a
