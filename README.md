@@ -69,6 +69,16 @@ docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/dmfdeploy/dmf-init:latest
 # open the http://localhost:8000/?token=... printed in the logs
 ```
 
+Repos are fetched from the public org `https://github.com/dmfdeploy` by default —
+no extra env needed. To pull from a private mirror, override the base URL (and
+optionally supply credentials):
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -e DMF_REPO_BASE_URL=https://git.example.com/dmf \
+  ghcr.io/dmfdeploy/dmf-init:latest
+```
+
 Multi-arch (amd64 + arm64), published by
 [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml).
 

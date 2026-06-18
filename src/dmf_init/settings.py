@@ -4,6 +4,12 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Since the public release (2026-06-11) all component repos are public under the
+# dmfdeploy org, so this is the correct out-of-the-box base for the runtime fetch
+# `{base_url}/<repo>.git`. Operators pointing at a private mirror override via the
+# DMF_REPO_BASE_URL env var or the UI base-URL field.
+DEFAULT_REPO_BASE_URL = "https://github.com/dmfdeploy"
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -24,7 +30,7 @@ class Settings:
     data_root: Path = Path("/tmp/dmf-init-data")
     bind_host: str = "127.0.0.1"
     bind_port: int = 8000
-    repo_base_url: str | None = None
+    repo_base_url: str = DEFAULT_REPO_BASE_URL
     run_ttl_seconds: int = 1800
     # Launch link must be opened within this window after container start (single-use).
     launch_token_ttl_seconds: int = 1800
@@ -45,7 +51,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    repo_base_url = os.getenv("DMF_REPO_BASE_URL", "").strip() or None
+    repo_base_url = os.getenv("DMF_REPO_BASE_URL", "").strip() or DEFAULT_REPO_BASE_URL
     tls_cert_raw = os.getenv("DMF_TLS_CERT", "").strip() or None
     tls_key_raw = os.getenv("DMF_TLS_KEY", "").strip() or None
     tls_sans = _env_tuple(
