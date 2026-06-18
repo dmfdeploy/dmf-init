@@ -91,6 +91,7 @@ class BootstrapRun:
     checkpoint_fn: Callable[[BootstrapRun, int], dict[str, Any]] | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    failed_step_id: str | None = None
 
     def __post_init__(self) -> None:
         self.pauses = {
@@ -165,18 +166,25 @@ def run_worker(run: BootstrapRun) -> None:
                 }
             )
             if isinstance(step, CommandStep):
+                log_tail: list[str] = []
                 for line, code in run.executor.run(step):
                     if code is None:
                         if line:
                             run.emit({"event": "log", "step": step.id, "line": line})
+                            log_tail.append(line)
+                            if len(log_tail) > 5:
+                                log_tail.pop(0)
                         continue
                     if code != 0:
+                        run.failed_step_id = step.id
+                        hint = "\n".join(log_tail)
                         run.emit({"event": "step_complete", "step": step.id, "status": "error"})
                         run.emit(
                             {
                                 "event": "error",
                                 "step": step.id,
                                 "error": f"command exited {code}",
+                                "hint": hint,
                             },
                             terminal=True,
                         )

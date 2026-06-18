@@ -211,3 +211,55 @@ def test_resume_before_pause_still_completes() -> None:
     assert not worker.is_alive()
     events = _decode_stream(run)
     assert events[-1]["event"] == "complete"
+
+
+def test_command_failure_sets_failed_step_id_and_hint() -> None:
+    steps: list[Step] = [
+        CommandStep(id="pre-seed", argv=["ignored"]),
+        CommandStep(id="post-seed", argv=["ignored"]),
+    ]
+    executor = FakeExecutor(
+        scripts={
+            "pre-seed": (["line1", "line2", "line3", "line4", "line5", "line6"], 1),
+            "post-seed": (["should not run"], 0),
+        }
+    )
+    run = BootstrapRun(run_id="run-fail", steps=steps, executor=executor)
+    run.add_secret("MYSECRET")
+
+    worker = threading.Thread(target=run_worker, args=(run,))
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+
+    assert run.failed_step_id == "pre-seed"
+    events = _decode_stream(run)
+    error_event = next(ev for ev in events if ev["event"] == "error")
+    assert error_event["step"] == "pre-seed"
+    assert "hint" in error_event
+    assert error_event["hint"] != ""
+    hint_lines = error_event["hint"].split("\n")
+    assert len(hint_lines) == 5
+    assert "line2" in hint_lines
+    assert "line6" in hint_lines
+    assert "MYSECRET" not in error_event["hint"]
+    assert any("MYSECRET" not in ev.get("hint", "") for ev in events)
+
+
+def test_hint_empty_when_no_log_lines_before_failure() -> None:
+    steps: list[Step] = [
+        CommandStep(id="fast-fail", argv=["ignored"]),
+    ]
+    executor = FakeExecutor(
+        scripts={"fast-fail": ([], 3)}
+    )
+    run = BootstrapRun(run_id="run-empty", steps=steps, executor=executor)
+    worker = threading.Thread(target=run_worker, args=(run,))
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+
+    assert run.failed_step_id == "fast-fail"
+    events = _decode_stream(run)
+    error_event = next(ev for ev in events if ev["event"] == "error")
+    assert error_event["hint"] == ""
