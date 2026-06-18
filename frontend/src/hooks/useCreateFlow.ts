@@ -23,7 +23,7 @@ export type ActivePause =
 
 type TerminalState =
   | { kind: 'complete'; runId: string; checkpoints: number[] }
-  | { kind: 'error'; step?: string; error: string }
+  | { kind: 'error'; step?: string; error: string; hint?: string }
 
 // ─── Reducer state ──────────────────────────────────────────────────────────
 type CreateState = {
@@ -45,7 +45,7 @@ type CreateAction =
   | { type: 'checkpoint'; n: number; artifact_name: string }
   | { type: 'pause'; pause: ActivePause }
   | { type: 'resume' }
-  | { type: 'error'; step?: string; error: string }
+  | { type: 'error'; step?: string; error: string; hint?: string }
   | { type: 'complete'; runId: string; checkpoints: number[] }
 
 function determinePhase(state: CreateState): CreatePhase {
@@ -152,7 +152,7 @@ function createReducer(state: CreateState, action: CreateAction): CreateState {
     case 'error':
       return {
         ...state,
-        terminal: { kind: 'error', step: action.step, error: action.error },
+        terminal: { kind: 'error', step: action.step, error: action.error, hint: action.hint },
       }
 
     case 'complete':
@@ -184,6 +184,7 @@ export function useCreateFlow() {
   const [passkeyStatus, setPasskeyStatus] = useState<string | null>(null)
   const [resumeError, setResumeError] = useState<string | null>(null)
   const [resumeBusy, setResumeBusy] = useState(false)
+  const [retryBusy, setRetryBusy] = useState(false)
 
   const derivePhase = useCallback(
     (s: CreateState) => determinePhase(s),
@@ -233,8 +234,8 @@ export function useCreateFlow() {
           dispatch({ type: 'resume' })
           break
         case 'error': {
-          const e = event as { step?: string; error: string }
-          dispatch({ type: 'error', step: e.step, error: e.error })
+          const e = event as { step?: string; error: string; hint?: string }
+          dispatch({ type: 'error', step: e.step, error: e.error, hint: e.hint })
           break
         }
         case 'complete': {
@@ -359,6 +360,47 @@ export function useCreateFlow() {
     [],
   )
 
+  const retryRun = useCallback(
+    async (passphrase: string) => {
+      if (retryBusy || !state.runId) return
+      setResumeError(null)
+      setRetryBusy(true)
+      try {
+        const response = await fetch('/api/bootstrap/retry', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+          body: JSON.stringify({
+            run_id: state.runId,
+            passphrase,
+          }),
+        })
+
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(text)
+        }
+
+        const data = (await response.json()) as { run_id: string }
+        dispatch({
+          type: 'run_started',
+          runId: data.run_id,
+          steps: [],
+        })
+      } catch (error) {
+        // Use non-terminal error channel so a failed/stale retry POST
+        // never clobbers the run's terminal state.
+        setResumeError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setRetryBusy(false)
+      }
+    },
+    [retryBusy, state.runId],
+  )
+
   return {
     state: { ...state, phase },
     dispatch,
@@ -367,6 +409,8 @@ export function useCreateFlow() {
     resumePause,
     verifyPasskey,
     pollPasskey,
+    retryRun,
+    retryBusy,
     passkeyChecking,
     passkeyStatus,
     resumeError,

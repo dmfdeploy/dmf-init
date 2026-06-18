@@ -105,7 +105,7 @@ export default function App() {
 
   // Create flow hook
   const createFlow = useCreateFlow()
-  const { state: createState, handleStreamEvent, startBootstrap, resumePause, verifyPasskey, pollPasskey } = createFlow
+  const { state: createState, handleStreamEvent, startBootstrap, resumePause, verifyPasskey, pollPasskey, retryRun, retryBusy } = createFlow
 
   // Stream hook for bootstrap
   const { logs: bootstrapLogs, cursor, reconnectNote, streamError } = useEventStream({
@@ -239,9 +239,13 @@ export default function App() {
               createState.terminal
                 ? createState.terminal.kind === 'complete'
                   ? { kind: 'complete', runId: createState.terminal.runId, checkpoints: createState.terminal.checkpoints }
-                  : { kind: 'error', step: createState.terminal.step, error: createState.terminal.error }
+                  : { kind: 'error', step: createState.terminal.step, error: createState.terminal.error, hint: createState.terminal.hint }
                 : null
             }
+            onRetry={() => {
+              if (renderPassphrase) retryRun(renderPassphrase)
+            }}
+            retryBusy={retryBusy}
           />
         )
 

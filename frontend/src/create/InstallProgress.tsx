@@ -18,7 +18,9 @@ type InstallProgressProps = {
   cursor: number
   reconnectNote: string | null
   streamError: string | null
-  terminal: { kind: 'complete' | 'error'; runId?: string; checkpoints?: number[]; step?: string; error?: string } | null
+  terminal: { kind: 'complete' | 'error'; runId?: string; checkpoints?: number[]; step?: string; error?: string; hint?: string } | null
+  onRetry?: () => void
+  retryBusy?: boolean
 }
 
 export function stepDisplayName(step: string): string {
@@ -91,6 +93,8 @@ export function InstallProgress({
   reconnectNote,
   streamError,
   terminal,
+  onRetry,
+  retryBusy,
 }: InstallProgressProps) {
   const [installStart, setInstallStart] = useState<number | null>(null)
   const elapsed = useElapsed(installStart)
@@ -301,11 +305,28 @@ export function InstallProgress({
             {terminal.step ? `Step ${stepDisplayName(terminal.step)}: ` : ''}
             {terminal.error}
           </p>
+          {terminal.hint && (
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-xs leading-5 text-muted">
+              {terminal.hint}
+            </pre>
+          )}
           {/* Lift last useful log lines */}
           {logs.length > 0 && (
             <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg/80 p-2 text-xs leading-5 text-text">
               {logs.slice(-10).map((e) => `${e.step}: ${e.line}`).join('\n')}
             </pre>
+          )}
+          {onRetry && terminal.step && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retryBusy}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg transition-colors hover:bg-accent/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {retryBusy ? 'Retrying…' : `Retry ${stepDisplayName(terminal.step)}`}
+              </button>
+            </div>
           )}
         </div>
       )}

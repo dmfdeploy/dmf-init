@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +43,7 @@ from .bootstrap_steps import (
     build_passkey_payload,
     ensure_runtime_repos,
     make_checkpoint_fn,
+    seed_openbao_redactions,
 )
 from .createnew import (
     CreateNewBackupRequest,
@@ -67,6 +68,7 @@ from .manage_actions import (
 )
 from .orchestrate import (
     BootstrapRun,
+    CheckpointStep,
     SubprocessExecutor,
     run_worker,
     stream_events,
@@ -185,6 +187,11 @@ class BootstrapResumeRequest(BaseModel):
     run_id: str
     pause_id: str
     payload: dict[str, Any] | None = None
+
+
+class BootstrapRetryRequest(BaseModel):
+    run_id: str
+    passphrase: str | None = None
 
 
 class BootstrapDoctorRequest(BaseModel):
@@ -505,6 +512,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return session
 
+    def _register_and_spawn(
+        env_id: str,
+        run: BootstrapRun,
+        clear_active: Callable[[], None],
+    ) -> None:
+        try:
+            with app.state.bootstrap_lock:
+                app.state.bootstrap_runs[run.run_id] = run
+                app.state.active_runs[env_id] = run.run_id
+            worker = threading.Thread(
+                target=lambda: (_run_worker_wrapper(run), clear_active()),
+                daemon=True,
+            )
+            worker.start()
+        except Exception:
+            with app.state.bootstrap_lock:
+                app.state.active_runs.pop(env_id, None)
+                app.state.bootstrap_runs.pop(run.run_id, None)
+            raise
+
     @app.post(
         "/api/bootstrap/start",
         include_in_schema=False,
@@ -573,23 +600,109 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _clear_active()
             raise
 
-        # P3: wrap set+spawn so any thread-start failure clears reservation
-        try:
-            with app.state.bootstrap_lock:
-                app.state.bootstrap_runs[run_id] = run
-                app.state.active_runs[payload.env_id] = run_id
-
-            worker = threading.Thread(
-                target=lambda: (_run_worker_wrapper(run), _clear_active()),
-                daemon=True,
-            )
-            worker.start()
-        except Exception:
-            with app.state.bootstrap_lock:
-                app.state.active_runs.pop(payload.env_id, None)
-                app.state.bootstrap_runs.pop(run_id, None)
-            raise
+        _register_and_spawn(payload.env_id, run, _clear_active)
         return JSONResponse({"run_id": run_id})
+
+    @app.post(
+        "/api/bootstrap/retry",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def bootstrap_retry(payload: BootstrapRetryRequest) -> JSONResponse:
+        _gc_terminal_runs()
+        with app.state.bootstrap_lock:
+            run = app.state.bootstrap_runs.get(payload.run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="run not found",
+            )
+        if run.final_status != "error":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="run is not in a failed state",
+            )
+        env_id = run.env_id
+        if env_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="run env_id unavailable",
+            )
+        with app.state.bootstrap_lock:
+            if env_id in app.state.active_runs:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="an operation is already in progress for this env",
+                )
+            app.state.active_runs[env_id] = "__pending__"
+
+        def _clear_active() -> None:
+            with app.state.bootstrap_lock:
+                app.state.active_runs.pop(env_id, None)
+
+        try:
+            try:
+                ctx = BootstrapContext.from_data_root(settings.data_root, env_id, remotes=[])
+            except FileNotFoundError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail=str(exc),
+                ) from exc
+
+            all_steps = build_bootstrap_steps(ctx)
+            failed_step_id = run.failed_step_id
+            if failed_step_id is None:
+                for ev in reversed(run.events):
+                    if ev.get("event") == "error" and ev.get("step"):
+                        failed_step_id = ev["step"]
+                        break
+            if failed_step_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="failed step id not found in run",
+                )
+            try:
+                idx = next(
+                    i for i, s in enumerate(all_steps) if s.id == failed_step_id
+                )
+            except StopIteration:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"failed step '{failed_step_id}' not in build",
+                ) from None
+            steps = all_steps[idx:]
+
+            if not any(
+                isinstance(s, CheckpointStep) and s.n == 2 for s in steps
+            ) and not (ctx.env_dir / "openbao-keys.json").is_file():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="cannot safely resume: openbao-keys.json missing "
+                    "(would stream unredacted secrets)",
+                )
+
+            has_checkpoint = any(isinstance(s, CheckpointStep) for s in steps)
+            if has_checkpoint and not payload.passphrase:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="passphrase required to resume (checkpoint backups need it)",
+                )
+
+            retry_run_id = secrets.token_urlsafe(8)
+            retry_run = BootstrapRun(
+                run_id=retry_run_id,
+                steps=steps,
+                env_id=env_id,
+                passphrase=payload.passphrase,
+                remotes=[],
+                executor=SubprocessExecutor(),
+                checkpoint_fn=make_checkpoint_fn(ctx),
+            )
+            seed_openbao_redactions(retry_run, ctx)
+            _register_and_spawn(env_id, retry_run, _clear_active)
+        except Exception:
+            _clear_active()
+            raise
+        return JSONResponse({"run_id": retry_run_id})
 
     @app.get(
         "/api/bootstrap/stream/{run_id}",

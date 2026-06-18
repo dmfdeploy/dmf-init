@@ -372,6 +372,22 @@ def _iter_secret_strings(value: Any, *, min_len: int = _MIN_SECRET_LEN) -> list[
     return secrets
 
 
+def seed_openbao_redactions(run: BootstrapRun, ctx: BootstrapContext) -> None:
+    """Seed run.secrets from on-disk openbao-keys.json if present.
+
+    Called at checkpoint-2 (normal path) and by the retry endpoint before
+    spawning a run that may slice past checkpoint-2. Without this, a retry
+    starting after checkpoint-2 would stream OpenBao unseal key / root token
+    unredacted in log events and the failure hint.
+    """
+    keys_path = ctx.env_dir / "openbao-keys.json"
+    if not keys_path.is_file():
+        return
+    data = json.loads(keys_path.read_text(encoding="utf-8"))
+    for secret in _iter_secret_strings(data):
+        run.add_secret(secret)
+
+
 def build_ca_cert_payload(ctx: BootstrapContext) -> dict[str, Any]:
     payload = {
         "filename": "dmf-ca.crt",
@@ -614,20 +630,17 @@ class CheckpointError(RuntimeError):
 def make_checkpoint_fn(ctx: BootstrapContext):
     def checkpoint_fn(run: BootstrapRun, n: int) -> dict[str, Any]:
         if n == 2:
-            keys_path = ctx.env_dir / "openbao-keys.json"
             # HARD FAIL if the keys file is absent. Proceeding would run `unseal`
             # / `seed-bao` with an empty redaction set and stream the OpenBao
             # unseal key + root token in clear. run_worker turns this into a
             # terminal `error` (the message names no secret), halting before
             # unseal. (qwen P1.)
-            if not keys_path.is_file():
+            if not (ctx.env_dir / "openbao-keys.json").is_file():
                 raise CheckpointError(
                     "openbao-keys.json missing at checkpoint #2 — refusing to "
                     "continue (would stream unredacted OpenBao secrets)"
                 )
-            data = json.loads(keys_path.read_text(encoding="utf-8"))
-            for secret in _iter_secret_strings(data):
-                run.add_secret(secret)
+            seed_openbao_redactions(run, ctx)
         # The run owns the passphrase (wiped after #3); never fall back to a
         # second copy — fail loudly if it is unexpectedly unset. (qwen P2-1.)
         passphrase = run.passphrase
