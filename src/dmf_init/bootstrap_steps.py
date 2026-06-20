@@ -208,10 +208,13 @@ class BootstrapContext:
             "TERM": "dumb",
             # run-playbook.sh defaults to a 900s cap, but the sandbox post-seed
             # (full app stack incl. AWX, which alone exceeds 900s to become
-            # ready) needs longer — the wizard's own next-steps guidance uses
-            # RUNBOOK_TIMEOUT=5400. Match it so post-seed/configure/verify aren't
-            # killed mid-deploy. (Harmless for the non-playbook steps.)
-            "RUNBOOK_TIMEOUT": "5400",
+            # ready) needs longer. The constrained Pi 4 repeatedly exceeded 5400s
+            # on configure — and configure is now longer with AWX scale-to-zero
+            # default-on (a Phase-C wake adds ~7 min of operator reconcile plus
+            # the Phase-A/E sleeps). The proven full-bootstrap run used 7200s, so
+            # match it. (A ceiling — finishes when done; harmless for fast lanes
+            # and for the non-playbook steps.)
+            "RUNBOOK_TIMEOUT": "7200",
         }
         if self.bootstrap_skip_tags:
             env["DMF_BOOTSTRAP_SKIP_TAGS"] = ",".join(self.bootstrap_skip_tags)
