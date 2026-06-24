@@ -99,6 +99,26 @@ host interface). HTTPS is opt-in (`-e DMF_TLS_ENABLED=true`) for when you reach
 it by a non-localhost address. Canonical spec:
 [`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
 
+### Target node
+
+The installer provisions a **node you bring** — an SSH-reachable **Debian 12 or
+13, ARM64** host (a cloud VM, a spare box, a Raspberry Pi). Other distros and
+architectures are untested for now. Your own workstation OS doesn't matter; the
+installer runs in a browser. On the wizard's *Target node* step you supply:
+
+- **Node IP** — an address reachable *from this installer container*. Not
+  `localhost` / `127.0.0.1`: that resolves to the container itself, not your node.
+- **Ansible user** — the SSH login on that node (`root`, or the image's default
+  user such as `debian`).
+- **Interface** — the node's primary network interface (`eth0`, `ens3`, …).
+
+These fields are intentionally blank by default — fill them for *your* node.
+
+> **macOS convenience (not the paved path):** `dmf-env/bin/recreate-sandbox-vm.sh`
+> spins up a local Lima VM (whose user / interface are `lima` / `lima0`). It
+> requires macOS + Lima; the bring-a-Debian-node path above works from any
+> workstation.
+
 ## Dependencies
 
 - [`dmf-env`](https://github.com/dmfdeploy/dmf-env) — env tooling (`init-wizard.sh`, `bin/` scripts) the container wraps.

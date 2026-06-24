@@ -25,8 +25,8 @@ type ConfigureStepProps = {
 const defaultSandbox: SandboxForm = {
   label: 'demo',
   nodeIp: '',
-  ansibleUser: 'lima',
-  iface: 'lima0',
+  ansibleUser: '',
+  iface: '',
   sshPrivateKey: '',
 }
 
@@ -152,19 +152,19 @@ export function ConfigureStep({ onSubmit, onPageChange, busy, error }: Configure
                   onChange={(e) => setSandbox((p) => ({ ...p, label: e.target.value }))}
                 />
               </Field>
-              <Field label="Node IP">
+              <Field label="Node IP" hint="Address reachable from this installer — not localhost or 127.0.0.1 (that points at the container itself).">
                 <Input
                   value={sandbox.nodeIp}
                   onChange={(e) => setSandbox((p) => ({ ...p, nodeIp: e.target.value }))}
                 />
               </Field>
-              <Field label="Ansible user">
+              <Field label="Ansible user" hint="SSH login on the node (e.g. root, or the image's default user such as debian). 'lima' only applies to a macOS Lima VM.">
                 <Input
                   value={sandbox.ansibleUser}
                   onChange={(e) => setSandbox((p) => ({ ...p, ansibleUser: e.target.value }))}
                 />
               </Field>
-              <Field label="Interface">
+              <Field label="Interface" hint="The node's primary network interface (e.g. eth0, ens3). 'lima0' only applies to a macOS Lima VM.">
                 <Input
                   value={sandbox.iface}
                   onChange={(e) => setSandbox((p) => ({ ...p, iface: e.target.value }))}
