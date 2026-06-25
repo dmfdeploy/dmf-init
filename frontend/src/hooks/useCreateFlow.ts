@@ -1,4 +1,5 @@
 import { useCallback, useReducer, useState } from 'react'
+import { describeFetchError } from '../shared/errors'
 
 // ─── Phase model ────────────────────────────────────────────────────────────
 export type CreatePhase =
@@ -185,6 +186,7 @@ export function useCreateFlow() {
   const [resumeError, setResumeError] = useState<string | null>(null)
   const [resumeBusy, setResumeBusy] = useState(false)
   const [retryBusy, setRetryBusy] = useState(false)
+  const [resumeEnvBusy, setResumeEnvBusy] = useState(false)
 
   const derivePhase = useCallback(
     (s: CreateState) => determinePhase(s),
@@ -361,7 +363,7 @@ export function useCreateFlow() {
   )
 
   const retryRun = useCallback(
-    async (passphrase: string) => {
+    async (passphrase: string, envId?: string | null) => {
       if (retryBusy || !state.runId) return
       setResumeError(null)
       setRetryBusy(true)
@@ -373,8 +375,12 @@ export function useCreateFlow() {
             'content-type': 'application/json',
             accept: 'application/json',
           },
+          // Send env_id alongside run_id so the SAME-TAB retry survives a
+          // run_ttl_seconds GC: once the in-memory run is gone the backend
+          // falls back to the on-disk resume cursor (Path B) instead of 404ing.
           body: JSON.stringify({
             run_id: state.runId,
+            env_id: envId ?? undefined,
             passphrase,
           }),
         })
@@ -393,12 +399,51 @@ export function useCreateFlow() {
       } catch (error) {
         // Use non-terminal error channel so a failed/stale retry POST
         // never clobbers the run's terminal state.
-        setResumeError(error instanceof Error ? error.message : String(error))
+        setResumeError(describeFetchError(error))
       } finally {
         setRetryBusy(false)
       }
     },
     [retryBusy, state.runId],
+  )
+
+  // resumeEnv — disk-backed resume by env_id (#143). After a GC / page reload /
+  // --rm restart the in-memory run (and its run_id) is gone, but the env + its
+  // persisted resume cursor survive on disk. POST retry by env_id rebuilds the
+  // sliced run; the stream then drives the install view as usual. Returns true
+  // on a successful spawn so the caller can record env/passphrase for downstream
+  // affordances (package download, further retry).
+  const resumeEnv = useCallback(
+    async (envId: string, passphrase: string): Promise<boolean> => {
+      if (resumeEnvBusy) return false
+      setResumeError(null)
+      setResumeEnvBusy(true)
+      try {
+        const response = await fetch('/api/bootstrap/retry', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+          body: JSON.stringify({ env_id: envId, passphrase }),
+        })
+        if (!response.ok) {
+          throw new Error(await response.text())
+        }
+        const data = (await response.json()) as { run_id: string }
+        dispatch({ type: 'run_started', runId: data.run_id, steps: [] })
+        return true
+      } catch (error) {
+        // describeFetchError maps a network-level failure (container gone) to
+        // operator-actionable copy instead of a bare "Load failed".
+        setResumeError(describeFetchError(error))
+        return false
+      } finally {
+        setResumeEnvBusy(false)
+      }
+    },
+    [resumeEnvBusy],
   )
 
   return {
@@ -411,6 +456,8 @@ export function useCreateFlow() {
     pollPasskey,
     retryRun,
     retryBusy,
+    resumeEnv,
+    resumeEnvBusy,
     passkeyChecking,
     passkeyStatus,
     resumeError,

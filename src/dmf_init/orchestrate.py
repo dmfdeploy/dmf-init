@@ -89,6 +89,10 @@ class BootstrapRun:
     remotes: list = field(default_factory=list)  # unused after download-model switch
     executor: CommandExecutor = field(default_factory=SubprocessExecutor)
     checkpoint_fn: Callable[[BootstrapRun, int], dict[str, Any]] | None = None
+    # Best-effort persistence hook invoked once the run reaches a terminal
+    # state (complete or error). Lets the caller record the resume cursor
+    # (failed step id) to disk so a GC'd / restarted run stays resumable.
+    journal_fn: Callable[[BootstrapRun], None] | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     failed_step_id: str | None = None
@@ -123,6 +127,13 @@ class BootstrapRun:
                 self.final_status = ev["event"]
                 self.finished_at = time.time()
             self.cond.notify_all()
+        # Persist the resume cursor outside the lock — journaling is
+        # best-effort and must never crash the worker or stall streaming.
+        if terminal and self.journal_fn is not None:
+            try:
+                self.journal_fn(self)
+            except Exception:  # pragma: no cover - defensive: disk hiccup
+                pass
 
     def wipe_secrets(self) -> None:
         with self.cond:
