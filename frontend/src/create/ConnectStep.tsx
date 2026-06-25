@@ -334,6 +334,14 @@ function PasskeyStation({
   return (
     <div className="grid gap-3">
       <p className="text-sm leading-5 text-muted">{payload.hint}</p>
+      {/* The count can sit at 0/1 because enrollment failed silently — call it
+          out where the operator is re-checking, not only on the CA station. */}
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs leading-5 text-amber-300">
+        On desktop Chrome/Chromium, passkey enrollment can fail silently if the
+        DMF Local CA isn&apos;t trusted. If the count stays below the required
+        number, complete the CA-trust step (previous station) or try another
+        browser, then re-check.
+      </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="grid gap-2 rounded-lg border border-border bg-panel/60 p-3 text-sm">
           <div className="text-muted">

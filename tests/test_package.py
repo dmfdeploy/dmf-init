@@ -131,7 +131,13 @@ def test_package_endpoint_streams_zip_and_records_download(
 
     before = client.get(f"/api/package/{ENV_ID}/status")
     assert before.status_code == 200
-    assert before.json() == {"downloaded_at": None}
+    # An artifact is seeded, so the bundle is available but not yet downloaded
+    # (and therefore not "current": nothing has been saved).
+    assert before.json() == {
+        "downloaded_at": None,
+        "available": True,
+        "current": False,
+    }
 
     response = client.get(f"/api/package/{ENV_ID}")
     assert response.status_code == 200
@@ -145,6 +151,69 @@ def test_package_endpoint_streams_zip_and_records_download(
     after = client.get(f"/api/package/{ENV_ID}/status").json()
     assert after["downloaded_at"] is not None
     assert after["sha256"] == response.headers["x-package-sha256"]
+
+
+def test_package_status_available_true_when_artifact_present(tmp_path: Path) -> None:
+    """#140: status reports available=True once a backup artifact exists, so the
+    persistent download affordance can show from render onward."""
+    data_root = _seed_env(tmp_path / "data")
+    _seed_artifact(data_root)
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    assert client.get(f"/?token={token}", follow_redirects=False).status_code in {302, 307}
+
+    status_body = client.get(f"/api/package/{ENV_ID}/status").json()
+    assert status_body["available"] is True
+    assert status_body["downloaded_at"] is None
+
+
+def test_package_status_available_false_without_artifact(tmp_path: Path) -> None:
+    """No artifact yet (pre-render / mid-render) → available=False, so the UI
+    does not offer a download that would 404."""
+    data_root = _seed_env(tmp_path / "data")  # env rendered, no artifact seeded
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    assert client.get(f"/?token={token}", follow_redirects=False).status_code in {302, 307}
+
+    status_body = client.get(f"/api/package/{ENV_ID}/status").json()
+    assert status_body["available"] is False
+    assert status_body["downloaded_at"] is None
+    assert status_body["current"] is False
+
+
+def test_package_status_current_goes_stale_when_newer_artifact_sealed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#140 P1: an early download is `current`, but once a newer backup is sealed
+    the saved bundle is stale (`current=False`) so the UI stops claiming
+    'safe to delete' against an incomplete recovery point."""
+    data_root = _seed_env(tmp_path / "data")
+    _seed_artifact(data_root, stamp="20260610T120000Z")  # early checkpoint backup
+
+    monkeypatch.setattr("dmf_init.main.build_ca_cert_payload", lambda ctx: FAKE_CA)
+    monkeypatch.setattr("dmf_init.main.build_hosts_map_payload", lambda ctx: FAKE_HOSTS)
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    assert client.get(f"/?token={token}", follow_redirects=False).status_code in {302, 307}
+
+    # Download the early bundle → recorded against that artifact → current.
+    assert client.get(f"/api/package/{ENV_ID}").status_code == 200
+    after_download = client.get(f"/api/package/{ENV_ID}/status").json()
+    assert after_download["downloaded_at"] is not None
+    assert after_download["current"] is True
+
+    # A later checkpoint backup is sealed → the saved bundle is now stale.
+    _seed_artifact(data_root, stamp="20260610T130000Z")
+    after_newer = client.get(f"/api/package/{ENV_ID}/status").json()
+    assert after_newer["available"] is True
+    assert after_newer["downloaded_at"] is not None
+    assert after_newer["current"] is False
 
 
 def test_package_endpoint_missing_artifact_404(tmp_path: Path) -> None:

@@ -84,9 +84,11 @@ package — store it separately (password manager).
 
 ## Contents
 
-- `{artifact_name}` — the encrypted environment backup (checkpoint #3,
-  sealed after successful verification). Restore it from the Manage screen
-  of any dmf-init container: upload + passphrase.
+- `{artifact_name}` — the most recent encrypted environment backup available
+  when this package was assembled. If you downloaded this before the bootstrap
+  finished, it may predate the final post-verification checkpoint — re-download
+  the package after completion to capture the latest backup. Restore it from the
+  Manage screen of any dmf-init container: upload + passphrase.
 - `{ca_payload.get("filename", "dmf-ca.crt")}` — the cluster's local CA certificate (public).
 - `MANIFEST.json` — sha256 digests of the files above.
 
