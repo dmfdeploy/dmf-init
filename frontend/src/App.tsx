@@ -5,6 +5,7 @@ import { InstallProgress, stepDisplayName } from './create/InstallProgress'
 import { ConnectStep } from './create/ConnectStep'
 import { FinishStep } from './create/FinishStep'
 import { ValidateStep } from './create/ValidateStep'
+import { LandingResume, type EnvSummary } from './create/LandingResume'
 import { useCreateFlow, type ActivePause } from './hooks/useCreateFlow'
 import { useEventStream } from './hooks/useEventStream'
 import ManageView from './ManageView'
@@ -105,7 +106,34 @@ export default function App() {
 
   // Create flow hook
   const createFlow = useCreateFlow()
-  const { state: createState, handleStreamEvent, startBootstrap, resumePause, verifyPasskey, pollPasskey, retryRun, retryBusy } = createFlow
+  const { state: createState, handleStreamEvent, startBootstrap, resumePause, verifyPasskey, pollPasskey, retryRun, retryBusy, resumeEnv, resumeEnvBusy } = createFlow
+
+  // Landing affordance (#143): rendered envs with a failed bootstrap on disk,
+  // offered for resume so a GC'd / reloaded / restarted session re-enters
+  // instead of dead-ending. Fetched once on mount.
+  const [resumableEnvs, setResumableEnvs] = useState<EnvSummary[]>([])
+  const [landingDismissed, setLandingDismissed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await fetch('/api/envs', {
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        })
+        if (!response.ok) return
+        const data = (await response.json()) as { envs: EnvSummary[] }
+        if (!cancelled) {
+          setResumableEnvs(data.envs.filter((e) => e.resumable))
+        }
+      } catch {
+        // Best-effort: a failed probe simply hides the affordance.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Stream hook for bootstrap
   const { logs: bootstrapLogs, cursor, reconnectNote, streamError } = useEventStream({
@@ -193,6 +221,22 @@ export default function App() {
     }
   }, [renderStage, renderedEnvId, renderPassphrase, handleStartBootstrap])
 
+  // Resume an unfinished env from disk (#143). On success the stream takes over
+  // and drives the install view; we record env+passphrase so downstream
+  // affordances (bundle download, retry) keep working, and latch the auto-start
+  // ref so the deploy effect never double-fires on top of the resumed run.
+  const handleResumeEnv = useCallback(
+    async (envId: string, passphrase: string) => {
+      const ok = await resumeEnv(envId, passphrase)
+      if (ok) {
+        setRenderedEnvId(envId)
+        setRenderPassphrase(passphrase)
+        bootstrapKickoff.current = true
+      }
+    },
+    [resumeEnv],
+  )
+
   // Determine if we should show validate phase
   const [showValidate, setShowValidate] = useState(false)
 
@@ -243,7 +287,7 @@ export default function App() {
                 : null
             }
             onRetry={() => {
-              if (renderPassphrase) retryRun(renderPassphrase)
+              if (renderPassphrase) retryRun(renderPassphrase, renderedEnvId)
             }}
             retryBusy={retryBusy}
           />
@@ -323,6 +367,15 @@ export default function App() {
         <>
           {/* Kept mounted (hidden) so form state survives a failed deploy. */}
           <div className={effectivePhase === 'configure' ? 'h-full' : 'hidden'}>
+            {!landingDismissed && renderStage === 'idle' ? (
+              <LandingResume
+                envs={resumableEnvs}
+                busy={resumeEnvBusy}
+                error={createFlow.resumeError}
+                onResume={handleResumeEnv}
+                onDismiss={() => setLandingDismissed(true)}
+              />
+            ) : null}
             <ConfigureStep
               onSubmit={handleSubmit}
               onPageChange={setConfigPage}

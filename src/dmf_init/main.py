@@ -190,7 +190,11 @@ class BootstrapResumeRequest(BaseModel):
 
 
 class BootstrapRetryRequest(BaseModel):
-    run_id: str
+    # run_id resumes a live (still in-memory) failed run; env_id resumes from
+    # the on-disk cursor after the run was GC'd or lost to a --rm restart.
+    # At least one must be supplied.
+    run_id: str | None = None
+    env_id: str | None = None
     passphrase: str | None = None
 
 
@@ -326,6 +330,60 @@ def _launch_notice_html(
             f"<body><main class='card'><h1>{heading}</h1><p>{body}</p></main></body></html>"
         ),
     )
+
+
+# The resume cursor lives next to render.json in runs/<env_id>/. It records
+# *where* a terminal run got to so retry/resume can be reconstructed from disk
+# after the in-memory run is GC'd (run_ttl_seconds) or lost to a --rm restart.
+RESUME_CURSOR_NAME = "resume.json"
+RESUME_CURSOR_SCHEMA_VERSION = 1
+
+
+def _resume_cursor_path(data_root: Path, env_id: str) -> Path:
+    return data_root / "runs" / env_id / RESUME_CURSOR_NAME
+
+
+def _load_resume_cursor(data_root: Path, env_id: str) -> dict[str, Any] | None:
+    """Read the on-disk resume cursor for an env, or None if absent/unreadable."""
+    path = _resume_cursor_path(data_root, env_id)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], None]:
+    """Build a journal_fn that persists the resume cursor when a run goes terminal.
+
+    On a terminal *error* the cursor (failed step id + status) is written so a
+    later disk-backed retry can resume from the failed step. On *complete* the
+    cursor is removed — a finished env is not resumable.
+    """
+    cursor_path = _resume_cursor_path(ctx.data_root, ctx.env_id)
+
+    def _journal(run: BootstrapRun) -> None:
+        if run.final_status == "complete":
+            cursor_path.unlink(missing_ok=True)
+            return
+        payload = {
+            "schema_version": RESUME_CURSOR_SCHEMA_VERSION,
+            "env_id": run.env_id,
+            "run_id": run.run_id,
+            "failed_step_id": run.failed_step_id,
+            "final_status": run.final_status,
+            "finished_at": run.finished_at,
+        }
+        cursor_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cursor_path.with_name(cursor_path.name + ".tmp")
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        tmp.replace(cursor_path)  # atomic swap into place
+
+    return _journal
 
 
 def _run_worker_wrapper(run: BootstrapRun) -> None:
@@ -595,6 +653,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 remotes=[],
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
+                journal_fn=make_resume_journal_fn(ctx),
             )
         except Exception:
             _clear_active()
@@ -610,24 +669,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def bootstrap_retry(payload: BootstrapRetryRequest) -> JSONResponse:
         _gc_terminal_runs()
-        with app.state.bootstrap_lock:
-            run = app.state.bootstrap_runs.get(payload.run_id)
-        if run is None:
+        from .backup import validate_env_id
+
+        env_id: str | None = None
+        failed_step_id: str | None = None
+
+        # Path A — live in-memory run (within run_ttl_seconds). Authoritative:
+        # a found run dictates the outcome (incl. the not-failed 409 guard).
+        if payload.run_id:
+            with app.state.bootstrap_lock:
+                run = app.state.bootstrap_runs.get(payload.run_id)
+            if run is not None:
+                if run.final_status != "error":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="run is not in a failed state",
+                    )
+                if run.env_id is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="run env_id unavailable",
+                    )
+                env_id = run.env_id
+                failed_step_id = run.failed_step_id
+                if failed_step_id is None:
+                    for ev in reversed(run.events):
+                        if ev.get("event") == "error" and ev.get("step"):
+                            failed_step_id = ev["step"]
+                            break
+
+        # Path B — disk-backed cursor (run GC'd or lost to a --rm restart). The
+        # env survives on disk; the persisted cursor supplies the failed step.
+        if env_id is None and payload.env_id:
+            try:
+                validate_env_id(payload.env_id)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+            cursor = _load_resume_cursor(settings.data_root, payload.env_id)
+            if cursor is not None and cursor.get("final_status") == "error":
+                env_id = payload.env_id
+                failed_step_id = cursor.get("failed_step_id")
+
+        if env_id is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="run not found",
             )
-        if run.final_status != "error":
+        if failed_step_id is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="run is not in a failed state",
+                detail="failed step id not found in run",
             )
-        env_id = run.env_id
-        if env_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="run env_id unavailable",
-            )
+
         with app.state.bootstrap_lock:
             if env_id in app.state.active_runs:
                 raise HTTPException(
@@ -649,17 +744,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from exc
 
             all_steps = build_bootstrap_steps(ctx)
-            failed_step_id = run.failed_step_id
-            if failed_step_id is None:
-                for ev in reversed(run.events):
-                    if ev.get("event") == "error" and ev.get("step"):
-                        failed_step_id = ev["step"]
-                        break
-            if failed_step_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="failed step id not found in run",
-                )
             try:
                 idx = next(
                     i for i, s in enumerate(all_steps) if s.id == failed_step_id
@@ -696,6 +780,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 remotes=[],
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
+                journal_fn=make_resume_journal_fn(ctx),
             )
             seed_openbao_redactions(retry_run, ctx)
             _register_and_spawn(env_id, retry_run, _clear_active)
@@ -703,6 +788,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _clear_active()
             raise
         return JSONResponse({"run_id": retry_run_id})
+
+    @app.get(
+        "/api/envs",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def list_envs() -> JSONResponse:
+        """List rendered envs on disk + their resume state.
+
+        Landing affordance: lets a reloaded / GC'd / --rm-restarted session
+        re-enter and resume an env instead of dead-ending on a 404 retry. An
+        env is `resumable` when a disk cursor records a terminal error and the
+        env is not currently the subject of a live run.
+        """
+        from .backup import validate_env_id
+
+        runs_root = settings.data_root / "runs"
+        envs: list[dict[str, Any]] = []
+        if runs_root.is_dir():
+            for entry in sorted(runs_root.iterdir()):
+                if not entry.is_dir():
+                    continue
+                env_id = entry.name
+                try:
+                    validate_env_id(env_id)
+                except ValueError:
+                    continue
+                render_json = entry / "render.json"
+                if not render_json.is_file():
+                    continue
+                try:
+                    meta = json.loads(render_json.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    meta = {}
+                cursor = _load_resume_cursor(settings.data_root, env_id)
+                with app.state.bootstrap_lock:
+                    active = env_id in app.state.active_runs
+                resumable = bool(
+                    cursor
+                    and cursor.get("final_status") == "error"
+                    and cursor.get("failed_step_id")
+                    and not active
+                )
+                envs.append(
+                    {
+                        "env_id": env_id,
+                        "profile": meta.get("profile"),
+                        "active": active,
+                        "resumable": resumable,
+                        "failed_step_id": cursor.get("failed_step_id") if cursor else None,
+                        "finished_at": cursor.get("finished_at") if cursor else None,
+                    }
+                )
+        return JSONResponse({"envs": envs})
 
     @app.get(
         "/api/bootstrap/stream/{run_id}",
