@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dmf-init"
-version = "0.3.2"
+version = "0.3.3"
 description = "DMF Init - stateless localhost bootstrap container for DMF environments"
 readme = "README.md"
 requires-python = ">=3.12"
