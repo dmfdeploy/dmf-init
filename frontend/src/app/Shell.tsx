@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import type { CreatePhase } from '../hooks/useCreateFlow'
+import { BundleDownload } from '../shared/BundleDownload'
+import type { PackageBundle } from '../shared/usePackageBundle'
 
 const CREATE_STEPS = [
   { key: 'configure', label: 'Configure' },
@@ -22,6 +24,8 @@ type ShellProps = {
   subItems?: Record<string, RailSubItem[]>
   children: ReactNode
   envId?: string | null
+  /** Shared recovery-bundle state; rendered under the rail + inline (#140). */
+  bundle?: PackageBundle
 }
 
 function railState(phase: CreatePhase): {
@@ -160,6 +164,7 @@ export function Shell({
   subItems,
   children,
   envId,
+  bundle,
 }: ShellProps) {
   const rail = createPhase ? railState(createPhase) : null
 
@@ -208,11 +213,26 @@ export function Shell({
               statuses={rail.statuses}
               subItems={subItems}
             />
+            {/* Recovery-bundle download, docked under the rail so it is reachable
+                from the first install screen through every pause to finish.
+                Shares one state owner with the inline copy below (no divergence). */}
+            {bundle?.available ? (
+              <div className="mt-auto border-t border-border p-3">
+                <BundleDownload bundle={bundle} />
+              </div>
+            ) : null}
           </aside>
         ) : null}
 
         {/* Central content pane — scroll only internally where needed */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          {/* Small screens hide the rail, so surface the bundle download inline
+              instead of stranding the operator without it. */}
+          {mode === 'create' && bundle?.available ? (
+            <div className="mb-4 lg:hidden">
+              <BundleDownload bundle={bundle} />
+            </div>
+          ) : null}
           {children}
         </main>
       </div>

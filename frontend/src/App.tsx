@@ -6,6 +6,7 @@ import { ConnectStep } from './create/ConnectStep'
 import { FinishStep } from './create/FinishStep'
 import { ValidateStep } from './create/ValidateStep'
 import { LandingResume, type EnvSummary } from './create/LandingResume'
+import { usePackageBundle } from './shared/usePackageBundle'
 import { useCreateFlow, type ActivePause } from './hooks/useCreateFlow'
 import { useEventStream } from './hooks/useEventStream'
 import ManageView from './ManageView'
@@ -107,6 +108,10 @@ export default function App() {
   // Create flow hook
   const createFlow = useCreateFlow()
   const { state: createState, handleStreamEvent, startBootstrap, resumePause, verifyPasskey, pollPasskey, retryRun, retryBusy, resumeEnv, resumeEnvBusy } = createFlow
+
+  // Single owner of recovery-bundle state, shared by the rail/inline download
+  // affordances and the finish screen (#140).
+  const bundle = usePackageBundle(renderedEnvId)
 
   // Landing affordance (#143): rendered envs with a failed bootstrap on disk,
   // offered for resume so a GC'd / reloaded / restarted session re-enters
@@ -262,6 +267,7 @@ export default function App() {
         <ValidateStep
           envId={renderedEnvId ?? ''}
           onBack={() => setShowValidate(false)}
+          bundle={bundle}
         />
       )
     }
@@ -320,8 +326,8 @@ export default function App() {
                   : { kind: 'error', error: createState.terminal.error }
                 : null
             }
-            envId={renderedEnvId ?? ''}
             onRevalidate={() => setShowValidate(true)}
+            bundle={bundle}
           />
         )
 
@@ -362,6 +368,7 @@ export default function App() {
       createPhase={mode === 'create' ? effectivePhase : undefined}
       subItems={mode === 'create' ? subItems : undefined}
       envId={renderedEnvId}
+      bundle={mode === 'create' ? bundle : undefined}
     >
       {mode === 'create' ? (
         <>

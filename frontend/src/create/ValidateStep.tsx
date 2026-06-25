@@ -3,12 +3,14 @@ import { useEventStream } from '../hooks/useEventStream'
 import { StatusDot } from '../shared/StatusDot'
 import { Disclosure } from '../shared/Disclosure'
 import { LogConsole, type LogEntry } from '../shared/LogConsole'
+import type { PackageBundle } from '../shared/usePackageBundle'
 
 type StepState = 'pending' | 'running' | 'ok' | 'error'
 
 type ValidateStepProps = {
   envId: string
   onBack: () => void
+  bundle: PackageBundle
 }
 
 type ValidateState = {
@@ -72,7 +74,7 @@ function validateReducer(state: ValidateState, action: ValidateAction): Validate
   }
 }
 
-export function ValidateStep({ envId, onBack }: ValidateStepProps) {
+export function ValidateStep({ envId, onBack, bundle }: ValidateStepProps) {
   const [state, dispatch] = useReducer(validateReducer, {
     runId: null,
     steps: [],
@@ -83,21 +85,10 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
   })
   const [busy, setBusy] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
-  const [pkgDownloaded, setPkgDownloaded] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/package/${encodeURIComponent(envId)}/status`, {
-      credentials: 'same-origin',
-      headers: { accept: 'application/json' },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { downloaded_at: number | null } | null) => {
-        if (!cancelled && payload) setPkgDownloaded(Boolean(payload.downloaded_at))
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [envId])
+  // Recovery-package state comes from the shared bundle owner so this screen
+  // honours staleness (downloaded && current) like Finish/BundleDownload (#140).
+  const pkgSafe = bundle.downloaded && bundle.current
+  const pkgStale = bundle.downloaded && !bundle.current
 
   const handleEvent = useCallback(
     (event: Record<string, unknown>) => {
@@ -186,17 +177,20 @@ export function ValidateStep({ envId, onBack }: ValidateStepProps) {
             <p className="mt-1 text-sm text-muted">
               Re-run the doctor check to verify cluster health.
             </p>
-            {pkgDownloaded !== null && (
-              <p className="mt-1.5 text-sm" aria-live="polite">
-                {pkgDownloaded ? (
-                  <span className="text-emerald-200">✓ Recovery package downloaded.</span>
-                ) : (
-                  <span className="text-amber-300">
-                    Recovery package not downloaded yet — do that before deleting the container.
-                  </span>
-                )}
-              </p>
-            )}
+            <p className="mt-1.5 text-sm" aria-live="polite">
+              {pkgSafe ? (
+                <span className="text-emerald-200">✓ Recovery package downloaded.</span>
+              ) : pkgStale ? (
+                <span className="text-amber-300">
+                  An earlier recovery package was downloaded — download the latest
+                  (in the sidebar) before deleting the container.
+                </span>
+              ) : (
+                <span className="text-amber-300">
+                  Recovery package not downloaded yet — do that before deleting the container.
+                </span>
+              )}
+            </p>
           </div>
           <button
             type="button"

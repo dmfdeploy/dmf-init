@@ -1082,6 +1082,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "downloaded_at": time.time(),
                     "sha256": result.sha256,
                     "filename": result.filename,
+                    # Source backup artifact this package was built from, so the
+                    # UI can tell a current download from a stale one once a
+                    # newer checkpoint backup appears (#140).
+                    "artifact": result.artifact_name,
                 }
 
         return StreamingResponse(
@@ -1110,7 +1114,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
         with app.state.bootstrap_lock:
             record = app.state.package_downloads.get(env_id)
-        return JSONResponse(record or {"downloaded_at": None})
+        # `available`: is there a backup artifact to package right now? Lets the
+        # UI offer the download only when it would actually succeed (an initial
+        # backup exists from render onward) instead of presenting a 404-in-
+        # waiting as if it were ready.
+        # `current`: was the downloaded bundle built from the *latest* backup?
+        # A pre-deploy (checkpoint-1) download goes stale once a later checkpoint
+        # backup is sealed; the UI must not keep reassuring "safe to delete"
+        # against a stale bundle (#140, Console UX Art. 1).
+        from .package import find_latest_artifact
+        try:
+            latest_name = find_latest_artifact(settings.data_root, env_id).name
+            available = True
+        except PackageError:
+            latest_name = None
+            available = False
+        payload = dict(record or {"downloaded_at": None})
+        payload["available"] = available
+        downloaded_artifact = (record or {}).get("artifact")
+        payload["current"] = bool(
+            record
+            and record.get("downloaded_at")
+            and downloaded_artifact is not None
+            and downloaded_artifact == latest_name
+        )
+        return JSONResponse(payload)
 
     # Change 4: CA certificate endpoint (session-protected, available post-bootstrap)
     @app.get(
