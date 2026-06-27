@@ -80,12 +80,23 @@ class ManageSession:
         self.passphrase = None
 
 
-def _assert_data_root_tmpfs(data_root: Path) -> None:
+class DataRootNotTmpfsError(RuntimeError):
+    """Raised when DMF_DATA_ROOT is not tmpfs-backed and enforcement is on."""
+
+
+def data_root_fs_type(data_root: Path) -> str | None:
+    """Return the backing filesystem type for ``data_root``.
+
+    ``None`` when it can't be determined (non-Linux, no ``/proc/mounts``, or no
+    matching mount) — callers treat that as "can't prove non-tmpfs", so they
+    neither warn nor enforce. On Linux it returns the fs type of the longest
+    matching mount point (e.g. ``tmpfs``, ``overlay``, ``ext4``).
+    """
     if not sys.platform.startswith("linux"):
-        return
+        return None
     mounts_path = Path("/proc/mounts")
     if not mounts_path.exists():
-        return
+        return None
 
     mounts: list[tuple[Path, str]] = []
     try:
@@ -94,34 +105,60 @@ def _assert_data_root_tmpfs(data_root: Path) -> None:
             if len(fields) < 3:
                 continue
             mount_point = Path(fields[1].replace("\\040", " "))
-            fs_type = fields[2]
-            mounts.append((mount_point, fs_type))
+            mounts.append((mount_point, fields[2]))
     except OSError:
-        return
+        return None
 
     resolved = data_root.resolve()
-    backing: tuple[Path, str] | None = None
     for mount_point, fs_type in sorted(mounts, key=lambda item: len(str(item[0])), reverse=True):
         try:
             resolved.relative_to(mount_point.resolve())
         except ValueError:
             continue
-        backing = (mount_point, fs_type)
-        break
+        return fs_type
+    return None
 
-    if backing is None:
+
+def assert_data_root_tmpfs(data_root: Path, *, enforce: bool) -> None:
+    """Check that ``data_root`` is RAM-backed (tmpfs/ramfs).
+
+    ADR-0044: env secrets must never touch host disk. Policy:
+
+    - tmpfs/ramfs → OK.
+    - a determinable non-tmpfs fs (overlay/ext4/…) → fail.
+    - **Linux but undeterminable** (no ``/proc/mounts``, read error, no matching
+      mount) → **fail** when enforcing: on the Linux appliance we must not
+      silently proceed when we can't prove RAM-backing (fail-closed, codex P2.1).
+    - **non-Linux** → allow: we can't introspect mounts on dev machines, and the
+      appliance is always Linux.
+
+    On a fail, ``enforce`` raises ``DataRootNotTmpfsError`` (used at startup so the
+    appliance refuses to run); otherwise it warns.
+    """
+    fs_type = data_root_fs_type(data_root)
+    if fs_type in {"tmpfs", "ramfs"}:
         return
-    mount_point, fs_type = backing
-    if fs_type not in {"tmpfs", "ramfs"}:
-        logger.warning(
-            "manage data root is not tmpfs-backed",
-            extra={
-                "event": "manage_data_root_not_tmpfs",
-                "data_root": str(data_root),
-                "mount_point": str(mount_point),
-                "filesystem": fs_type,
-            },
+    if fs_type is None:
+        if not sys.platform.startswith("linux"):
+            return  # can't introspect off-Linux; the real appliance is Linux
+        reason = f"could not determine the filesystem backing DMF_DATA_ROOT ({data_root})"
+    else:
+        reason = f"DMF_DATA_ROOT ({data_root}) is on '{fs_type}', not tmpfs"
+
+    if enforce:
+        raise DataRootNotTmpfsError(
+            f"{reason} — refusing to start so env secrets never touch host disk "
+            "(ADR-0044). Mount it as tmpfs (docker: --tmpfs /tmp/dmf-init-data), or "
+            "set DMF_ALLOW_NON_TMPFS_DATA_ROOT=true to override (dev/test only)."
         )
+    logger.warning(
+        "data root is not tmpfs-backed",
+        extra={
+            "event": "data_root_not_tmpfs",
+            "data_root": str(data_root),
+            "filesystem": fs_type or "unknown",
+        },
+    )
 
 
 def _canonical_manage_paths(data_root: Path, env_id: str) -> tuple[Path, Path, Path]:
@@ -162,10 +199,13 @@ def _write_manage_render_json(
 
 
 def run_manage_restore(
-    data_root: Path, request: ManageRestoreRequest
+    data_root: Path, request: ManageRestoreRequest, *, enforce_tmpfs: bool = False
 ) -> tuple[ManageSession, ManageRestoreResult]:
     data_root.mkdir(parents=True, exist_ok=True)
-    _assert_data_root_tmpfs(data_root)
+    # Defense in depth: startup already fail-closes in the real runtime, so a
+    # restore would only reach here on tmpfs. Restore is where secrets are
+    # written, so re-check (enforced when the caller passes the runtime setting).
+    assert_data_root_tmpfs(data_root, enforce=enforce_tmpfs)
 
     dest_dir = Path(tempfile.mkdtemp(prefix="manage-restore-", dir=data_root))
     restore_result: RestoreResult | None = None
