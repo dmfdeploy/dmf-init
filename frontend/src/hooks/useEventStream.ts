@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { readNdjson } from '../ndjson'
 import { describeFetchError } from '../shared/errors'
+import { flagIfUnauthorized, isSessionExpired, useSessionExpired } from '../shared/sessionExpiry'
 
 type LogEntry = { step: string; line: string }
 type EventCallback = (event: Record<string, unknown>) => void
@@ -43,6 +44,11 @@ export function useEventStream({
   const cursorRef = useRef(0)
   const onEventRef = useRef(onEvent)
   const onTerminalRef = useRef(onTerminal)
+  // Subscribe to the session latch so the stream effect re-runs when it flips:
+  // quiesce on expiry, and restart from cursorRef.current once "Check fresh
+  // session" clears it — reconnecting the live run in place (logs survive: they
+  // only reset on a runId change). (codex facet-e follow-up.)
+  const sessionExpired = useSessionExpired()
 
   useEffect(() => {
     onEventRef.current = onEvent
@@ -68,7 +74,7 @@ export function useEventStream({
 
   // Main streaming effect
   useEffect(() => {
-    if (!runId) return
+    if (!runId || sessionExpired) return
 
     let cancelled = false
     const controller = new AbortController()
@@ -97,6 +103,7 @@ export function useEventStream({
           signal: controller.signal,
         },
       )
+      flagIfUnauthorized(response)
 
       if (!response.ok) {
         throw new Error(await readError(response))
@@ -148,6 +155,8 @@ export function useEventStream({
           await waitForRetry(250 * retries)
         } catch (error) {
           if (cancelled || controller.signal.aborted) return
+          // Session expired — the overlay owns recovery; don't burn retries.
+          if (isSessionExpired()) return
           if (retries >= 5) {
             setStreamError(describeFetchError(error))
             return
@@ -165,7 +174,7 @@ export function useEventStream({
       cancelled = true
       controller.abort()
     }
-  }, [runId, pushLog])
+  }, [runId, pushLog, sessionExpired])
 
   return { cursor, logs, reconnectNote, streamError }
 }

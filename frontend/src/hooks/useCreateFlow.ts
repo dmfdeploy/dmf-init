@@ -1,5 +1,6 @@
 import { useCallback, useReducer, useState } from 'react'
 import { describeFetchError } from '../shared/errors'
+import { flagIfUnauthorized, isSessionExpired } from '../shared/sessionExpiry'
 
 // ─── Phase model ────────────────────────────────────────────────────────────
 export type CreatePhase =
@@ -270,6 +271,7 @@ export function useCreateFlow() {
             passphrase_confirm: passphrase,
           }),
         })
+        flagIfUnauthorized(response)
 
         if (!response.ok) {
           const text = await response.text()
@@ -302,12 +304,17 @@ export function useCreateFlow() {
       setResumeBusy(true)
       setResumeError(null)
       try {
-        await fetch('/api/bootstrap/resume', {
+        const response = await fetch('/api/bootstrap/resume', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ run_id: runId, pause_id: pauseId, payload: null }),
         })
+        if (flagIfUnauthorized(response)) return
+        // Only clear the pause locally if the server actually resumed. A 409
+        // (e.g. the export gate refusing until the bundle is saved, or an
+        // already-resumed pause) must surface, not silently hide the station.
+        if (!response.ok) throw new Error(await response.text())
         dispatch({ type: 'resume' })
       } catch (error) {
         setResumeError(error instanceof Error ? error.message : String(error))
@@ -328,6 +335,7 @@ export function useCreateFlow() {
           credentials: 'same-origin',
           headers: { accept: 'application/json' },
         })
+        if (flagIfUnauthorized(response)) return
         if (!response.ok) throw new Error(await response.text())
         const payload = (await response.json()) as { confirmed: number; required: number }
         const statusText = `${payload.confirmed}/${payload.required}`
@@ -349,11 +357,13 @@ export function useCreateFlow() {
   // pollPasskey (for Connect station live count)
   const pollPasskey = useCallback(
     async (runId: string): Promise<{ confirmed: number; required: number } | null> => {
+      if (isSessionExpired()) return null
       try {
         const response = await fetch(`/api/bootstrap/passkey/${runId}`, {
           credentials: 'same-origin',
           headers: { accept: 'application/json' },
         })
+        if (flagIfUnauthorized(response)) return null
         if (!response.ok) return null
         return (await response.json()) as { confirmed: number; required: number }
       } catch {
@@ -385,6 +395,7 @@ export function useCreateFlow() {
             passphrase,
           }),
         })
+        flagIfUnauthorized(response)
 
         if (!response.ok) {
           const text = await response.text()
@@ -429,6 +440,7 @@ export function useCreateFlow() {
           },
           body: JSON.stringify({ env_id: envId, passphrase }),
         })
+        flagIfUnauthorized(response)
         if (!response.ok) {
           throw new Error(await response.text())
         }

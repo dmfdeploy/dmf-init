@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useEventStream } from '../hooks/useEventStream'
+import { flagIfUnauthorized } from '../shared/sessionExpiry'
 import { StatusDot } from '../shared/StatusDot'
 import { Disclosure } from '../shared/Disclosure'
 import { LogConsole, type LogEntry } from '../shared/LogConsole'
@@ -144,6 +145,7 @@ export function ValidateStep({ envId, onBack, bundle }: ValidateStepProps) {
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ env_id: envId }),
       })
+      flagIfUnauthorized(response)
       if (!response.ok) {
         const text = await response.text()
         throw new Error(text)

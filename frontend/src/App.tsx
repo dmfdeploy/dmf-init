@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Shell, type RailSubItem } from './app/Shell'
+import { SessionExpiredOverlay } from './shared/SessionExpiredOverlay'
+import { flagIfUnauthorized } from './shared/sessionExpiry'
 import { ConfigureStep, type OperatorForm, type SandboxForm } from './create/ConfigureStep'
 import { InstallProgress, stepDisplayName } from './create/InstallProgress'
 import { ConnectStep } from './create/ConnectStep'
@@ -47,6 +49,7 @@ async function fetchJson<T>(url: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   })
+  flagIfUnauthorized(response)
 
   if (!response.ok) {
     throw new Error(await readError(response))
@@ -68,6 +71,7 @@ async function streamRender(
     },
     body: JSON.stringify(payload),
   })
+  flagIfUnauthorized(response)
 
   if (!response.ok) {
     throw new Error(await readError(response))
@@ -126,6 +130,7 @@ export default function App() {
           credentials: 'same-origin',
           headers: { accept: 'application/json' },
         })
+        if (flagIfUnauthorized(response)) return
         if (!response.ok) return
         const data = (await response.json()) as { envs: EnvSummary[] }
         if (!cancelled) {
@@ -371,6 +376,7 @@ export default function App() {
       envId={renderedEnvId}
       bundle={mode === 'create' ? bundle : undefined}
     >
+      <SessionExpiredOverlay />
       {mode === 'create' ? (
         <>
           {/* Kept mounted (hidden) so form state survives a failed deploy. */}
