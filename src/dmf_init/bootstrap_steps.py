@@ -354,6 +354,57 @@ def _command_step(ctx: BootstrapContext, step_id: str, argv: list[str]) -> Comma
     return CommandStep(id=step_id, argv=argv, cwd=ctx.repos_root / "dmf-env", env=ctx.command_env())
 
 
+# Only this profile is auto-unsealable: it uses a 1-of-1 Shamir key held in the
+# env bundle (openbao-keys.json), so dmf-init can re-unseal unattended. A multi-
+# share (e.g. Hetzner 3-of-5) env must be unsealed manually — never auto-unseal
+# there. (ADR-0044 facet (d).)
+SANDBOX_SINGLE_NODE_PROFILE = "sandbox-single-node"
+BAO_PREFLIGHT_ID = "bao-preflight"
+
+
+def supports_auto_unseal(profile: str) -> bool:
+    return profile == SANDBOX_SINGLE_NODE_PROFILE
+
+
+def _idempotent_unseal_argv(ctx: BootstrapContext, banner: str) -> list[str]:
+    # unseal-openbao.sh exits 2 for "already unsealed" — map it to 0 so the step
+    # is a safe no-op when OpenBao is already up. Any other non-zero stays fatal.
+    return [
+        "sh",
+        "-c",
+        f'echo "{banner}"; '
+        'rc=0; "$0" "$@" || rc=$?; '
+        'if [ "$rc" -eq 2 ]; then '
+        'echo "[dmf-init] OpenBao already unsealed (exit 2 = ok)"; '
+        'exit 0; fi; '
+        'exit "$rc"',
+        str(ctx.repos_root / "dmf-env" / "bin" / "unseal-openbao.sh"),
+        ctx.env_id,
+        "--yes",
+    ]
+
+
+def build_bao_preflight_step(ctx: BootstrapContext) -> CommandStep:
+    """A loud, idempotent OpenBao unseal preflight (ADR-0044 facet (d)).
+
+    Injected at the head of a retry slice that resumes *past* the unseal step
+    (the env node may have rebooted, which re-seals OpenBao), so the Bao-dependent
+    phases don't fail opaquely against a sealed OpenBao. Idempotent: no-ops when
+    already unsealed. If it can't unseal (key absent / Bao uninitialised), the
+    step errors legibly instead of letting `configure` fail mysteriously.
+    """
+    return CommandStep(
+        id=BAO_PREFLIGHT_ID,
+        argv=_idempotent_unseal_argv(
+            ctx,
+            "[dmf-init] bao-preflight: ensuring OpenBao is unsealed before "
+            "resuming Bao-dependent phases (the env node may have rebooted)",
+        ),
+        cwd=ctx.repos_root / "dmf-env",
+        env=ctx.command_env(),
+    )
+
+
 # OpenBao unseal keys (>=44 chars b64 / 64 hex) and root tokens (~30 chars) are
 # all high-entropy. Guarding on a minimum length keeps every real secret while
 # avoiding redacting short, low-entropy metadata (e.g. a "1" or a version tag)
@@ -600,23 +651,11 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
         _command_step(
             ctx,
             "unseal",
-            # unseal-openbao.sh exits 2 for "already unsealed and --force-rerun
-            # not set" — documented as callers-may-treat-as-success. The sandbox
-            # profile's Tier-3 self-recovering unseal already unseals OpenBao
-            # during pre-seed, so exit 2 is the NORMAL path here; map it to 0 so
-            # the step graph doesn't halt. Any other non-zero stays fatal.
-            [
-                "sh",
-                "-c",
-                'rc=0; "$0" "$@" || rc=$?; '
-                'if [ "$rc" -eq 2 ]; then '
-                'echo "[dmf-init] unseal: already unsealed (exit 2 = ok)"; '
-                'exit 0; fi; '
-                'exit "$rc"',
-                str(ctx.repos_root / "dmf-env" / "bin" / "unseal-openbao.sh"),
-                ctx.env_id,
-                "--yes",
-            ],
+            # The sandbox profile's Tier-3 self-recovering unseal already unseals
+            # OpenBao during pre-seed, so "already unsealed" (exit 2) is the NORMAL
+            # path here; the shared idempotent wrapper maps it to 0 so the graph
+            # doesn't halt. Any other non-zero stays fatal.
+            _idempotent_unseal_argv(ctx, "[dmf-init] unseal"),
         ),
         _command_step(
             ctx,

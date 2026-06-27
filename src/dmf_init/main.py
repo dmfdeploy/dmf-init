@@ -38,8 +38,10 @@ from .backup import (
     BackupIntegrityError,
 )
 from .bootstrap_steps import (
+    BAO_PREFLIGHT_ID,
     CHECKPOINT_EXPORT_GATE_ID,
     BootstrapContext,
+    build_bao_preflight_step,
     build_bootstrap_steps,
     build_ca_cert_payload,
     build_hosts_map_payload,
@@ -47,6 +49,7 @@ from .bootstrap_steps import (
     ensure_runtime_repos,
     make_checkpoint_fn,
     seed_openbao_redactions,
+    supports_auto_unseal,
 )
 from .createnew import (
     CreateNewBackupRequest,
@@ -461,7 +464,7 @@ def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], No
             "schema_version": RESUME_CURSOR_SCHEMA_VERSION,
             "env_id": run.env_id,
             "run_id": run.run_id,
-            "failed_step_id": run.failed_step_id,
+            "failed_step_id": _canonical_failed_step_id(run),
             "final_status": run.final_status,
             "finished_at": run.finished_at,
         }
@@ -473,6 +476,24 @@ def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], No
         tmp.replace(cursor_path)  # atomic swap into place
 
     return _journal
+
+
+def _canonical_failed_step_id(run: BootstrapRun) -> str | None:
+    """Map the synthetic bao-preflight step back to the canonical step it guards.
+
+    The preflight (ADR-0044 facet d) is prepended to a retry slice and is NOT in
+    build_bootstrap_steps(). If a run fails there, persisting/returning
+    ``bao-preflight`` as the failed step would dead-end the next retry (idx lookup
+    409s "not in build") and poison the disk cursor. Since the preflight always
+    sits immediately before the canonical step it guards, resolve to that step.
+    """
+    fsid = run.failed_step_id
+    if fsid != BAO_PREFLIGHT_ID:
+        return fsid
+    for i, step in enumerate(run.steps):
+        if step.id == BAO_PREFLIGHT_ID:
+            return run.steps[i + 1].id if i + 1 < len(run.steps) else None
+    return fsid
 
 
 def _run_worker_wrapper(run: BootstrapRun) -> None:
@@ -825,7 +846,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         detail="run env_id unavailable",
                     )
                 env_id = run.env_id
-                failed_step_id = run.failed_step_id
+                failed_step_id = _canonical_failed_step_id(run)
                 if failed_step_id is None:
                     for ev in reversed(run.events):
                         if ev.get("event") == "error" and ev.get("step"):
@@ -916,6 +937,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail="cannot safely resume: openbao-keys.json missing "
                     "(would stream unredacted secrets)",
                 )
+
+            # ADR-0044 facet (d): a retry that resumes PAST the unseal step would
+            # otherwise run Bao-dependent phases against an OpenBao that the env
+            # node's reboot re-sealed — the exact opaque `configure` failure from
+            # the lockout incident. On the auto-unsealable sandbox profile, prepend
+            # a loud, idempotent preflight that re-unseals if needed (no-op if not).
+            unseal_idx = next(
+                (i for i, s in enumerate(all_steps) if s.id == "unseal"), None
+            )
+            if (
+                unseal_idx is not None
+                and idx > unseal_idx
+                and supports_auto_unseal(ctx.render_meta.profile)
+            ):
+                steps = [build_bao_preflight_step(ctx), *steps]
 
             has_checkpoint = any(isinstance(s, CheckpointStep) for s in steps)
             if has_checkpoint and not payload.passphrase:

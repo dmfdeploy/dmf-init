@@ -226,6 +226,7 @@ def test_retry_passes_passphrase_and_slices_from_failed_step(
     retry_run = spawned_runs[0]
     step_ids = [s.id for s in retry_run.steps]
     assert step_ids == [
+        "bao-preflight",
         "post-seed",
         "configure",
         "workstation",
@@ -368,3 +369,113 @@ def test_retry_allowed_past_gate_with_export(
     )
     assert response.status_code == 200
     assert len(spawned_runs) == 1
+
+
+def test_retry_prepends_bao_preflight_past_unseal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: failed step past unseal + sandbox profile → bao-preflight injected."""
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    _seed_current_download(app, env_id)
+
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert spawned_runs[0].steps[0].id == "bao-preflight"
+
+
+def test_retry_no_preflight_resuming_at_unseal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: failed step IS unseal (idx == unseal_idx, not >) → no preflight."""
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="unseal")
+    # unseal is past the export gate so a download is needed to pass the gate check.
+    _seed_current_download(app, env_id)
+
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert spawned_runs[0].steps[0].id == "unseal"
+
+
+def test_retry_no_preflight_for_non_sandbox_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: past-unseal retry but non-sandbox profile → no preflight."""
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, render_dir = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+    # Override render.json profile to a non-auto-unsealable value.
+    age_key_path = render_dir / "age" / "keys.txt"
+    answers_file_path = render_dir / "answers.yaml"
+    (render_dir / "render.json").write_text(
+        json.dumps(
+            {
+                "env_id": env_id,
+                "profile": "multi-node-ha",
+                "schema_version": 1,
+                "render_dir": str(render_dir),
+                "age_key_path": str(age_key_path),
+                "answers_file_path": str(answers_file_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    _seed_current_download(app, env_id)
+
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert spawned_runs[0].steps[0].id == "post-seed"
