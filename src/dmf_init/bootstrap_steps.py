@@ -559,6 +559,29 @@ def build_passkey_payload(ctx: BootstrapContext) -> dict[str, Any]:
     return payload
 
 
+# ADR-0044: the recovery bundle is the only cross-lifetime artifact, and it only
+# counts once it has left tmpfs (been downloaded). Everything after checkpoint-2
+# (unseal → seed-bao → post-seed → the long, unattended `configure`) can run for
+# a long time on a constrained node; a crash before the operator has saved the
+# checkpoint-2 bundle is unrecoverable. So we gate continuation past checkpoint-2
+# on a *proven, current* download (enforced server-side in /api/bootstrap/resume).
+CHECKPOINT_EXPORT_GATE_ID = "checkpoint-2-export-gate"
+
+
+def build_checkpoint_export_gate_payload(ctx: BootstrapContext) -> dict[str, Any]:
+    return {
+        "gate": "checkpoint-export",
+        "checkpoint": 2,
+        "env_id": ctx.env_id,
+        "message": (
+            "Save your recovery bundle before continuing. The next phases run "
+            "unattended and can take a long time on a constrained node — if this "
+            "container is lost before you've downloaded the bundle, the run can't "
+            "be recovered. Continue is enabled once the current bundle has saved."
+        ),
+    }
+
+
 def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
     return [
         _command_step(
@@ -567,6 +590,13 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             ctx.run_playbook_argv("bootstrap-sandbox-provision-pre-seed.yml"),
         ),
         CheckpointStep(id="checkpoint-2", n=2),
+        # Forced export gate (ADR-0044): blocks unseal/seed-bao/post-seed/configure
+        # until the checkpoint-2 bundle is proven downloaded off tmpfs.
+        PauseStep(
+            id=CHECKPOINT_EXPORT_GATE_ID,
+            title="Save your recovery bundle",
+            payload_fn=lambda run, ctx=ctx: build_checkpoint_export_gate_payload(ctx),
+        ),
         _command_step(
             ctx,
             "unseal",

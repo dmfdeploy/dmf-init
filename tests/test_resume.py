@@ -11,6 +11,7 @@ and resuming from it by env_id.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ def _real_build_steps() -> list[Step]:
     return [
         CommandStep(id="pre-seed", argv=["ignored"]),
         CheckpointStep(id="checkpoint-2", n=2),
+        PauseStep(id="checkpoint-2-export-gate", title="Save recovery bundle"),
         CommandStep(id="unseal", argv=["ignored"]),
         CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
@@ -106,6 +108,17 @@ def _authenticate(client: TestClient, app: Any) -> None:
 
 
 # ─── journal_fn: cursor persistence ──────────────────────────────────────────
+
+
+def _seed_current_download(app: Any, env_id: str) -> None:
+    """Mark the checkpoint-2 recovery bundle as exported so the ADR-0044 gate
+    lets a post-gate retry proceed."""
+    artifacts = app.state.settings.data_root / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    name = f"dmf-backup-{env_id}-20260101T000000Z.tar.age"
+    (artifacts / name).write_bytes(b"x")
+    with app.state.bootstrap_lock:
+        app.state.package_downloads[env_id] = {"downloaded_at": time.time(), "artifact": name}
 
 
 def test_resume_journal_writes_cursor_on_terminal_error(tmp_path: Path) -> None:
@@ -187,6 +200,7 @@ def test_retry_disk_resume_after_gc(
         "dmf_init.main.run_worker", lambda run: spawned.append(run)
     )
 
+    _seed_current_download(app, env_id)
     # No in-memory run exists (it was GC'd / lost to --rm). Resume by env_id.
     response = client.post(
         "/api/bootstrap/retry",
@@ -234,6 +248,7 @@ def test_retry_stale_run_id_with_env_id_falls_back_to_disk(
         "dmf_init.main.run_worker", lambda run: spawned.append(run)
     )
 
+    _seed_current_download(app, env_id)
     # run_id is gone from memory (GC'd); env_id rescues it via the disk cursor.
     response = client.post(
         "/api/bootstrap/retry",
@@ -292,6 +307,7 @@ def test_retry_env_id_409_past_cp2_without_openbao_keys(
     )
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: None)
 
+    _seed_current_download(app, env_id)
     response = client.post(
         "/api/bootstrap/retry",
         json={"env_id": env_id, "passphrase": "pw"},

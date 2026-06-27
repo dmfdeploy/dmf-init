@@ -312,6 +312,7 @@ export default function App() {
             envId={renderedEnvId ?? ''}
             runId={createState.runId ?? ''}
             pollPasskey={pollPasskey}
+            bundleSafe={Boolean(bundle.downloaded && bundle.current)}
           />
         )
 
