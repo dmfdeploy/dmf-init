@@ -33,9 +33,19 @@ class Settings:
     repo_base_url: str = DEFAULT_REPO_BASE_URL
     run_ttl_seconds: int = 1800
     # Launch link must be opened within this window after container start (single-use).
+    # Re-mintable in-band via SIGHUP (a fresh link is printed to the logs) so an
+    # expired link on a live container is recoverable without a restart.
     launch_token_ttl_seconds: int = 1800
-    # Session must outlive a full bootstrap (a single step can run RUNBOOK_TIMEOUT=5400s).
+    # Session IDLE TTL: the cookie max_age, **slid forward on every authenticated
+    # request** (require_session re-stamps the session so Starlette re-issues the
+    # cookie). An active operator never times out; the window only starts counting
+    # once requests stop. Must comfortably exceed the longest gap between authed
+    # requests (incl. an operator stepping away mid-run).
     session_ttl_seconds: int = 43200
+    # Absolute session lifetime regardless of activity — a hard ceiling on the
+    # sliding idle TTL so a session can't live forever. 7 days by default; safe
+    # because the trust surface is localhost (see ADR-0044 / re-entry plan).
+    session_absolute_cap_seconds: int = 604800
     log_level: str = "info"
     app_name: str = "DMF Init"
     # TLS — OFF by default: the appliance is reached as http://localhost, which is
@@ -68,6 +78,9 @@ def load_settings() -> Settings:
         run_ttl_seconds=_env_int("DMF_BOOTSTRAP_RUN_TTL_SECONDS", 1800),
         launch_token_ttl_seconds=_env_int("DMF_LAUNCH_TOKEN_TTL_SECONDS", 1800),
         session_ttl_seconds=_env_int("DMF_SESSION_TTL_SECONDS", 43200),
+        session_absolute_cap_seconds=_env_int(
+            "DMF_SESSION_ABSOLUTE_CAP_SECONDS", 604800
+        ),
         log_level=os.getenv("DMF_LOG_LEVEL", "info").lower().strip() or "info",
         tls_enabled=os.getenv("DMF_TLS_ENABLED", "false").lower().strip() == "true",
         tls_cert=Path(tls_cert_raw) if tls_cert_raw else None,
