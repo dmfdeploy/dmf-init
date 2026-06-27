@@ -1,5 +1,6 @@
 import { useCallback, useReducer, useState } from 'react'
 import { useEventStream } from './hooks/useEventStream'
+import { flagIfUnauthorized } from './shared/sessionExpiry'
 import { StatusDot } from './shared/StatusDot'
 import { LogConsole, type LogEntry } from './shared/LogConsole'
 import { Field, Input, SectionCard } from './ui'
@@ -61,6 +62,7 @@ async function fetchJson<T>(url: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   })
+  flagIfUnauthorized(response)
 
   if (!response.ok) {
     throw new Error(await readError(response))
@@ -372,6 +374,7 @@ export default function ManageView() {
         credentials: 'same-origin',
         body: formData,
       })
+      flagIfUnauthorized(response)
       if (!response.ok) {
         throw new Error(await readError(response))
       }

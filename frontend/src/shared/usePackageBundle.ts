@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { describeFetchError } from './errors'
+import { flagIfUnauthorized, isSessionExpired } from './sessionExpiry'
 
 export type PackageBundle = {
   /** A backup artifact exists, so the download would succeed. */
@@ -43,12 +44,14 @@ export function usePackageBundle(envId: string | null): PackageBundle {
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
+    if (isSessionExpired()) return
     if (!envId) return
     try {
       const response = await fetch(
         `/api/package/${encodeURIComponent(envId)}/status`,
         { credentials: 'same-origin', headers: { accept: 'application/json' } },
       )
+      if (flagIfUnauthorized(response)) return
       if (!response.ok) return
       setStatus((await response.json()) as PackageStatus)
     } catch {
@@ -82,6 +85,7 @@ export function usePackageBundle(envId: string | null): PackageBundle {
       const response = await fetch(`/api/package/${encodeURIComponent(envId)}`, {
         credentials: 'same-origin',
       })
+      flagIfUnauthorized(response)
       if (!response.ok) {
         // Art. 8: never surface the raw FastAPI detail body at default level.
         throw new Error(
