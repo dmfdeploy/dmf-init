@@ -58,6 +58,12 @@ class Settings:
     # Repo fallback creds (never surfaced in UI)
     repo_username: str | None = None
     repo_password: str | None = None
+    # ADR-0044: DMF_DATA_ROOT must be tmpfs so env secrets (age key, openbao
+    # keys) never touch host disk. Enforced fail-closed at startup. The dataclass
+    # default is False so a directly-constructed Settings (tests) stays lenient;
+    # load_settings() turns it on for the real runtime unless the operator sets
+    # DMF_ALLOW_NON_TMPFS_DATA_ROOT=true (a deliberate dev/test escape hatch).
+    require_tmpfs_data_root: bool = False
 
 
 def load_settings() -> Settings:
@@ -88,4 +94,8 @@ def load_settings() -> Settings:
         tls_sans=tls_sans,
         repo_username=repo_username,
         repo_password=repo_password,
+        # Enforced by default in the real runtime; the escape hatch is explicit.
+        require_tmpfs_data_root=(
+            os.getenv("DMF_ALLOW_NON_TMPFS_DATA_ROOT", "false").lower().strip() != "true"
+        ),
     )

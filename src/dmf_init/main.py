@@ -60,6 +60,7 @@ from .manage import (
     ManageError,
     ManageRestoreRequest,
     ManageSession,
+    assert_data_root_tmpfs,
     build_doctor_run,
     build_env_doctor_run,
     run_manage_restore,
@@ -482,6 +483,11 @@ def _manage_action_wrapper(
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     settings.data_root.mkdir(parents=True, exist_ok=True)
+    # ADR-0044: fail closed if the data root isn't RAM-backed, so env secrets
+    # never touch host disk. Raises DataRootNotTmpfsError → the appliance refuses
+    # to start. No-op on non-Linux / undeterminable, and skipped when the operator
+    # set DMF_ALLOW_NON_TMPFS_DATA_ROOT (require_tmpfs_data_root=False).
+    assert_data_root_tmpfs(settings.data_root, enforce=settings.require_tmpfs_data_root)
 
     token_state = LaunchTokenState(token=secrets.token_urlsafe(24), issued_at=time.time())
     app = FastAPI(title=settings.app_name, docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -1277,7 +1283,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 artifact_path=local_path,
                 passphrase=passphrase,
             )
-            session, result = run_manage_restore(settings.data_root, request)
+            session, result = run_manage_restore(
+                settings.data_root, request, enforce_tmpfs=settings.require_tmpfs_data_root
+            )
         except ManageError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1453,6 +1461,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 def main() -> None:
     settings = load_settings()
+    # ADR-0044: prove the data root is tmpfs *before* writing anything into it —
+    # the TLS self-signed key below lands under data_root, so the gate must run
+    # first (create_app re-checks; idempotent). (codex P2.2.)
+    settings.data_root.mkdir(parents=True, exist_ok=True)
+    assert_data_root_tmpfs(settings.data_root, enforce=settings.require_tmpfs_data_root)
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
     if settings.tls_enabled:
