@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import secrets
 import shutil
+import signal
 import tempfile
 import threading
 import time
@@ -124,15 +126,22 @@ class LaunchTokenMiddleware:
         settings: Settings = scope["app"].state.settings
         now = time.time()
 
+        # Recovery is in-band (facet b): re-mint a fresh link on the *running*
+        # container — no restart, so the run's tmpfs state is preserved.
+        remint_hint = (
+            "To get a fresh link without restarting (and without losing the "
+            "in-progress run), have the running container re-mint one: send it "
+            "SIGHUP — e.g. <code>docker kill --signal=HUP &lt;container&gt;</code> — "
+            "then open the new link printed in its logs."
+        )
         link_min = max(1, settings.launch_token_ttl_seconds // 60)
         if state.expired(now, settings.launch_token_ttl_seconds):
             response = _launch_notice_html(
                 settings,
                 heading="Launch link expired",
                 body=(
-                    f"This one-time launch link is valid for about {link_min} minutes after the "
-                    "container starts, and that window has passed. Restart the container and open "
-                    "the fresh link printed in its logs."
+                    f"This one-time launch link is valid for about {link_min} minutes, and "
+                    f"that window has passed. {remint_hint}"
                 ),
                 status_code=410,
             )
@@ -141,9 +150,9 @@ class LaunchTokenMiddleware:
                 settings,
                 heading="Launch link already used",
                 body=(
-                    "This launch link is single-use and has already opened a session. If you "
-                    "still have the browser tab where you opened it, keep using that one. "
-                    "Otherwise restart the container for a fresh link."
+                    "This launch link is single-use and has already opened a session. If "
+                    "you still have the browser tab where you opened it, keep using that "
+                    f"one. {remint_hint}"
                 ),
                 status_code=403,
             )
@@ -152,8 +161,8 @@ class LaunchTokenMiddleware:
                 settings,
                 heading="Invalid launch link",
                 body=(
-                    "This token doesn't match the running container. Use the exact link printed in "
-                    "the container logs, or restart the container for a fresh one."
+                    "This token doesn't match the running container. Use the exact link printed "
+                    f"in the container logs. {remint_hint}"
                 ),
                 status_code=403,
             )
@@ -165,11 +174,35 @@ class LaunchTokenMiddleware:
 
 
 def require_session(request: Request) -> None:
-    if "dmf_init_launch" not in request.session:
+    """Gate protected endpoints on a live launch session, and **slide** it.
+
+    Two clocks: a sliding *idle* TTL (the cookie ``max_age``) and a hard
+    *absolute* cap. Starlette only re-issues the cookie when the session is
+    marked modified, and it tracks modification only on **top-level** mutation —
+    so we reassign the whole ``dmf_init_launch`` key (not a nested field) to push
+    the idle window forward on every authenticated request. The absolute cap is
+    checked against ``started_at`` so a session can't live forever.
+    """
+    sess = request.session.get("dmf_init_launch")
+    if not isinstance(sess, dict):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="launch session required",
         )
+
+    settings: Settings = request.app.state.settings
+    now = time.time()
+    started_at = sess.get("started_at", now)
+    if now - started_at > settings.session_absolute_cap_seconds:
+        request.session.clear()  # top-level mutation → cookie cleared
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="launch session expired",
+        )
+
+    # Slide the idle window: reassign the top-level key so Starlette re-issues the
+    # cookie with a fresh max_age. Preserve started_at (the absolute-cap anchor).
+    request.session["dmf_init_launch"] = {**sess, "started_at": started_at, "last_seen": now}
 
 
 class BootstrapStartRequest(BaseModel):
@@ -217,13 +250,11 @@ class ManageActionStartRequest(BaseModel):
     params: dict[str, Any] | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    state: LaunchTokenState = app.state.launch_token_state
-    settings: Settings = app.state.settings
+def _print_launch_link(state: LaunchTokenState, settings: Settings) -> None:
+    """Print the one-time launch URL to stdout (the container logs)."""
     scheme = "https" if settings.tls_enabled else "http"
     link_min = max(1, settings.launch_token_ttl_seconds // 60)
-    session_h = settings.session_ttl_seconds / 3600
+    idle_h = settings.session_ttl_seconds / 3600
     # The bind interface (often 0.0.0.0 in a container) is not browsable — always
     # show a host the operator can actually open.
     display_host = settings.bind_host
@@ -233,8 +264,8 @@ async def lifespan(app: FastAPI):
     print(f"launch token: {state.token}", flush=True)
     print(f"open {launch_url}?token={state.token}", flush=True)
     print(
-        f"  (single-use link, valid ~{link_min} min after start; "
-        f"your session then lasts ~{session_h:.0f}h)",
+        f"  (single-use link, valid ~{link_min} min; your session then lasts "
+        f"~{idle_h:.0f}h idle and refreshes while you're active)",
         flush=True,
     )
     if settings.tls_enabled:
@@ -244,7 +275,43 @@ async def lifespan(app: FastAPI):
             "http://localhost avoids the warning entirely.",
             flush=True,
         )
+
+
+def _remint_launch_token(app: FastAPI) -> None:
+    """Re-mint the single-use launch token and print a fresh link to the logs.
+
+    Facet (b): in-band re-entry. If the operator's session expired and the
+    original launch link is spent/expired, a ``SIGHUP`` mints a new token on the
+    *running* container — no restart, so tmpfs state and the session secret (and
+    thus any still-valid sessions) survive. The trust surface is unchanged:
+    sending SIGHUP requires the same host/docker access as reading the logs the
+    link is printed to.
+    """
+    state: LaunchTokenState = app.state.launch_token_state
+    settings: Settings = app.state.settings
+    state.token = secrets.token_urlsafe(24)
+    state.issued_at = time.time()
+    state.used_at = None
+    print("re-minting launch token (SIGHUP) — previous link is now invalid", flush=True)
+    _print_launch_link(state, settings)
+    logger.info("launch token re-minted", extra={"event": "launch_token_reminted"})
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    state: LaunchTokenState = app.state.launch_token_state
+    settings: Settings = app.state.settings
+    _print_launch_link(state, settings)
     logger.info("launch token generated", extra={"event": "launch_token_issued"})
+    # Facet (b): SIGHUP re-mints the launch link in-band. Best-effort — not the
+    # main thread (e.g. TestClient) or a platform without SIGHUP just skips it.
+    if hasattr(signal, "SIGHUP"):
+        try:
+            asyncio.get_running_loop().add_signal_handler(
+                signal.SIGHUP, _remint_launch_token, app
+            )
+        except (NotImplementedError, RuntimeError, ValueError):
+            logger.debug("SIGHUP re-mint handler not installed (non-main thread?)")
     yield
 
 
@@ -451,6 +518,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "status": "ok",
                 "service": settings.app_name,
                 "data_root": str(settings.data_root),
+            }
+        )
+
+    @app.get(
+        "/api/session",
+        include_in_schema=False,
+        dependencies=[Depends(require_session)],
+    )
+    async def session_status(request: Request) -> JSONResponse:
+        """Remaining-session signal for a pre-expiry warning (facet a).
+
+        Note: hitting this endpoint *is* activity, so it also slides the idle
+        window (via require_session). The actionable number for a warning is
+        ``absolute_remaining_seconds`` — the hard ceiling that activity cannot
+        extend.
+        """
+        sess = request.session["dmf_init_launch"]
+        now = time.time()
+        started_at = sess.get("started_at", now)
+        absolute_remaining = max(
+            0, settings.session_absolute_cap_seconds - (now - started_at)
+        )
+        return JSONResponse(
+            {
+                "idle_ttl_seconds": settings.session_ttl_seconds,
+                "absolute_remaining_seconds": int(absolute_remaining),
             }
         )
 

@@ -96,7 +96,20 @@ docker run --rm -p 127.0.0.1:8000:8000 dmf-init:bundle
 
 Loopback safety is the `-p 127.0.0.1:…` publish (never publish to a non-loopback
 host interface). HTTPS is opt-in (`-e DMF_TLS_ENABLED=true`) for when you reach
-it by a non-localhost address. Canonical spec:
+it by a non-localhost address.
+
+**Lost your session / launch link?** The session refreshes while you're active
+and lasts well beyond a single run idle, but if it lapses (or you closed the tab)
+the one-time launch link is spent. You don't need to restart — re-mint a fresh
+link on the *running* container (preserving the in-progress run) by sending it
+`SIGHUP`, then open the new link printed in the logs:
+
+```bash
+docker kill --signal=HUP <container>   # e.g. the name from `docker ps`
+docker logs --tail 3 <container>       # copy the fresh open http://localhost:8000/?token=... line
+```
+
+Canonical spec:
 [`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
 
 ### Target node
