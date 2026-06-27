@@ -24,6 +24,10 @@ type WorkstationPayload = {
   hosts: HostsMapPayload
 }
 
+type ExportGatePayload = {
+  message?: string
+}
+
 type ConnectStepProps = {
   activePause: ActivePause | null
   resumeBusy: boolean
@@ -35,6 +39,7 @@ type ConnectStepProps = {
   envId: string
   runId: string
   pollPasskey: (runId: string) => Promise<{ confirmed: number; required: number } | null>
+  bundleSafe?: boolean
 }
 
 export function ConnectStep({
@@ -47,6 +52,7 @@ export function ConnectStep({
   onVerifyPasskey,
   runId,
   pollPasskey,
+  bundleSafe,
 }: ConnectStepProps) {
   const [passkeyCount, setPasskeyCount] = useState<{ confirmed: number; required: number } | null>(null)
   const stationRef = useRef<HTMLDivElement>(null)
@@ -168,6 +174,21 @@ export function ConnectStep({
               onVerify={onVerifyPasskey}
             />
           )}
+
+          {/* Export-gate station: block resume until recovery bundle is saved */}
+          {activePause.pause_id === 'checkpoint-2-export-gate' && (
+            <div className="grid gap-3">
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                <p className="text-sm font-medium text-amber-300">
+                  Save your recovery bundle before continuing
+                </p>
+                <p className="mt-1 text-sm leading-5 text-muted">
+                  {(activePause.payload as ExportGatePayload).message ??
+                    'The remaining bootstrap phases are long and unattended. Download the recovery bundle from the panel below so you can recover the environment if anything goes wrong.'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error */}
@@ -191,7 +212,7 @@ export function ConnectStep({
           ) : (
             <button
               type="button"
-              disabled={resumeBusy}
+              disabled={resumeBusy || (activePause.pause_id === 'checkpoint-2-export-gate' && !bundleSafe)}
               onClick={onResume}
               className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >

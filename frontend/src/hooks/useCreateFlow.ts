@@ -21,6 +21,7 @@ type BootstrapCheckpoint = {
 export type ActivePause =
   | { pause_id: 'workstation'; title: string; payload: Record<string, unknown> }
   | { pause_id: 'passkey'; title: string; payload: Record<string, unknown> }
+  | { pause_id: 'checkpoint-2-export-gate'; title: string; payload: Record<string, unknown> }
 
 type TerminalState =
   | { kind: 'complete'; runId: string; checkpoints: number[] }

@@ -38,6 +38,7 @@ from .backup import (
     BackupIntegrityError,
 )
 from .bootstrap_steps import (
+    CHECKPOINT_EXPORT_GATE_ID,
     BootstrapContext,
     build_bootstrap_steps,
     build_ca_cert_payload,
@@ -204,6 +205,26 @@ def require_session(request: Request) -> None:
     # Slide the idle window: reassign the top-level key so Starlette re-issues the
     # cookie with a fresh max_age. Preserve started_at (the absolute-cap anchor).
     request.session["dmf_init_launch"] = {**sess, "started_at": started_at, "last_seen": now}
+
+
+def download_is_current(
+    record: dict[str, Any] | None, latest_artifact_name: str | None
+) -> bool:
+    """True iff a recovery bundle has been fully downloaded AND it is the latest.
+
+    The download record is written only when a package stream completes end to end
+    (an aborted download leaves no record), and ``artifact`` names the ``.tar.age``
+    that was bundled. Comparing it to the latest artifact on disk makes "current"
+    honest: a stale download (a newer checkpoint sealed since) is not current. This
+    is the proof that the checkpoint bundle has left tmpfs (ADR-0044).
+    """
+    return bool(
+        record
+        and record.get("downloaded_at")
+        and record.get("artifact")
+        and latest_artifact_name is not None
+        and record["artifact"] == latest_artifact_name
+    )
 
 
 class BootstrapStartRequest(BaseModel):
@@ -505,6 +526,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # exists at submit time, so this is a global lock rather than per-env).
     app.state.createnew_lock = threading.Lock()
     app.state.createnew_active = False
+
+    def _export_proven(env_id: str | None) -> bool:
+        """Has the current recovery bundle for env_id been downloaded off tmpfs?"""
+        if not env_id:
+            return False
+        from .package import find_latest_artifact
+        with app.state.bootstrap_lock:
+            record = app.state.package_downloads.get(env_id)
+        try:
+            latest_name: str | None = find_latest_artifact(settings.data_root, env_id).name
+        except PackageError:
+            latest_name = None
+        return download_is_current(record, latest_name)
+
     app.add_middleware(LaunchTokenMiddleware)
     cookie_secure = settings.tls_enabled
     app.add_middleware(
@@ -854,6 +889,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from None
             steps = all_steps[idx:]
 
+            # ADR-0044 forced export gate also applies to retry/resume-from-cursor:
+            # if we'd resume *past* the gate (the gate step isn't in this slice),
+            # the normal /resume enforcement is skipped, so re-check the proof here.
+            # If the slice still contains the gate, the resume endpoint enforces it
+            # when the operator reaches that pause.
+            gate_idx = next(
+                (i for i, s in enumerate(all_steps) if s.id == CHECKPOINT_EXPORT_GATE_ID),
+                None,
+            )
+            if gate_idx is not None and idx > gate_idx and not _export_proven(env_id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "recovery bundle not saved yet — download the current bundle "
+                        "before resuming past checkpoint-2 (it's your only recovery if "
+                        "the container is lost during the long unattended phases)"
+                    ),
+                )
+
             if not any(
                 isinstance(s, CheckpointStep) and s.n == 2 for s in steps
             ) and not (ctx.env_dir / "openbao-keys.json").is_file():
@@ -970,6 +1024,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             run = app.state.bootstrap_runs.get(payload.run_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        # ADR-0044 forced export gate: refuse to advance past checkpoint-2 into the
+        # long unattended phases until the current recovery bundle is proven
+        # downloaded off tmpfs. Server-enforced so a frontend can't skip it.
+        if payload.pause_id == CHECKPOINT_EXPORT_GATE_ID and not _export_proven(run.env_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "recovery bundle not saved yet — download the current bundle "
+                    "before continuing (it's your only recovery if the container is "
+                    "lost during the long unattended phases)"
+                ),
+            )
         try:
             run.resume(payload.pause_id, payload.payload)
         except (KeyError, ValueError) as exc:
@@ -1230,13 +1296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             available = False
         payload = dict(record or {"downloaded_at": None})
         payload["available"] = available
-        downloaded_artifact = (record or {}).get("artifact")
-        payload["current"] = bool(
-            record
-            and record.get("downloaded_at")
-            and downloaded_artifact is not None
-            and downloaded_artifact == latest_name
-        )
+        payload["current"] = download_is_current(record, latest_name)
         return JSONResponse(payload)
 
     # Change 4: CA certificate endpoint (session-protected, available post-bootstrap)

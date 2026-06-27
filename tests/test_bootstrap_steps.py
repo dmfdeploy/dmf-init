@@ -358,6 +358,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert [step.id for step in steps] == [
         "pre-seed",
         "checkpoint-2",
+        "checkpoint-2-export-gate",
         "unseal",
         "seed-bao",
         "post-seed",
@@ -447,10 +448,23 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     worker = threading.Thread(target=run_worker, args=(run,), daemon=True)
     worker.start()
 
+    # The forced export gate pauses first, immediately after checkpoint-2 and
+    # before the long unattended phases. (At the orchestrate level it's a plain
+    # pause; the download-proof enforcement lives in the /api/bootstrap/resume
+    # endpoint, covered by test_export_gate.py.)
+    _wait_for(
+        lambda: any(
+            ev["event"] == "pause" and ev["pause_id"] == "checkpoint-2-export-gate"
+            for ev in run.events
+        )
+    )
+    assert any(ev["event"] == "checkpoint" and ev["n"] == 2 for ev in run.events)
+    assert not any(ev["event"] == "pause" and ev["pause_id"] == "workstation" for ev in run.events)
+    run.resume("checkpoint-2-export-gate")
+
     _wait_for(
         lambda: any(ev["event"] == "pause" and ev["pause_id"] == "workstation" for ev in run.events)
     )
-    assert any(ev["event"] == "checkpoint" and ev["n"] == 2 for ev in run.events)
     assert not any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
     log_lines = [event["line"] for event in run.events if event["event"] == "log"]
     assert log_lines
@@ -468,7 +482,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert not worker.is_alive()
     assert checkpoint_calls == [2, 3]
     pause_ids = [event["pause_id"] for event in run.events if event["event"] == "pause"]
-    assert pause_ids == ["workstation", "passkey"]
+    assert pause_ids == ["checkpoint-2-export-gate", "workstation", "passkey"]
     assert run.events[-1]["event"] == "complete"
     assert run.events[-1]["checkpoints"] == [2, 3]
 

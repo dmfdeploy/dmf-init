@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,12 +22,14 @@ from dmf_init.settings import Settings
 def _real_build_steps() -> list[Step]:
     """Subset of build_bootstrap_steps matching the real graph order.
 
-    Real order: pre-seed, checkpoint-2, unseal, seed-bao, post-seed, configure,
-    workstation (pause), passkey (pause), verify, checkpoint-3.
+    Real order: pre-seed, checkpoint-2, checkpoint-2-export-gate, unseal,
+    seed-bao, post-seed, configure, workstation (pause), passkey (pause),
+    verify, checkpoint-3.
     """
     return [
         CommandStep(id="pre-seed", argv=["ignored"]),
         CheckpointStep(id="checkpoint-2", n=2),
+        PauseStep(id="checkpoint-2-export-gate", title="Save recovery bundle"),
         CommandStep(id="unseal", argv=["ignored"]),
         CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
@@ -103,6 +106,17 @@ def _authenticate(client: TestClient, app: Any) -> None:
     token = app.state.launch_token_state.token
     launch = client.get(f"/?token={token}", follow_redirects=False)
     assert launch.status_code in {302, 307}
+
+
+def _seed_current_download(app: Any, env_id: str) -> None:
+    """Mark the checkpoint-2 recovery bundle as exported so the ADR-0044 gate
+    lets a post-gate retry proceed."""
+    artifacts = app.state.settings.data_root / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    name = f"dmf-backup-{env_id}-20260101T000000Z.tar.age"
+    (artifacts / name).write_bytes(b"x")
+    with app.state.bootstrap_lock:
+        app.state.package_downloads[env_id] = {"downloaded_at": time.time(), "artifact": name}
 
 
 def test_retry_404_unknown_run_id(tmp_path: Path) -> None:
@@ -198,6 +212,7 @@ def test_retry_passes_passphrase_and_slices_from_failed_step(
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
 
     run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    _seed_current_download(app, env_id)
 
     response = client.post(
         "/api/bootstrap/retry",
@@ -251,6 +266,7 @@ def test_retry_seeds_openbao_redactions(
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
 
     run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    _seed_current_download(app, env_id)
 
     response = client.post(
         "/api/bootstrap/retry",
@@ -283,6 +299,7 @@ def test_retry_409_past_checkpoint2_without_openbao_keys(
 
     # Fail at configure — slice is configure..checkpoint-3, which is past CP2.
     run_id = _make_failed_run(app, env_id=env_id, failed_step_id="configure")
+    _seed_current_download(app, env_id)
 
     response = client.post(
         "/api/bootstrap/retry",
@@ -290,3 +307,64 @@ def test_retry_409_past_checkpoint2_without_openbao_keys(
     )
     assert response.status_code == 409
     assert "openbao-keys.json" in response.json()["detail"]
+
+
+def test_retry_blocked_past_gate_without_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: post-gate retry with no download recorded → 409."""
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    # Do NOT call _seed_current_download — no download recorded.
+
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 409
+    assert "recovery bundle not saved" in response.json()["detail"]
+    assert spawned_runs == []
+
+
+def test_retry_allowed_past_gate_with_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: post-gate retry WITH download recorded → 200."""
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="post-seed")
+    _seed_current_download(app, env_id)
+
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert len(spawned_runs) == 1
