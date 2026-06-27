@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dmf_init.bootstrap_steps import BootstrapContext
-from dmf_init.main import create_app, make_resume_journal_fn
+from dmf_init.main import _resume_cursor_path, create_app, make_resume_journal_fn
 from dmf_init.orchestrate import (
     BootstrapRun,
     CheckpointStep,
@@ -209,6 +209,7 @@ def test_retry_disk_resume_after_gc(
     assert response.status_code == 200
     assert len(spawned) == 1
     assert [s.id for s in spawned[0].steps] == [
+        "bao-preflight",
         "post-seed",
         "configure",
         "workstation",
@@ -256,7 +257,7 @@ def test_retry_stale_run_id_with_env_id_falls_back_to_disk(
     )
     assert response.status_code == 200
     assert len(spawned) == 1
-    assert spawned[0].steps[0].id == "post-seed"
+    assert spawned[0].steps[0].id == "bao-preflight"
 
 
 def test_retry_run_id_only_still_404_after_gc(tmp_path: Path) -> None:
@@ -386,3 +387,79 @@ def test_list_envs_active_env_not_resumable(tmp_path: Path) -> None:
     envs = {e["env_id"]: e for e in response.json()["envs"]}
     assert envs["env-active"]["active"] is True
     assert envs["env-active"]["resumable"] is False
+
+
+# ─── bao-preflight canonical mapping (P1 fix) ────────────────────────────────
+
+
+def test_journal_maps_preflight_failure_to_canonical_step(tmp_path: Path) -> None:
+    """DISCRIMINATING: journal_fn must NOT persist 'bao-preflight' as failed_step_id.
+
+    Without the _canonical_failed_step_id mapping, a preflight failure would
+    poison the disk cursor with 'bao-preflight' — a synthetic id not in
+    build_bootstrap_steps — and every subsequent retry would 409.
+    """
+    from types import SimpleNamespace
+
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    _make_env_on_disk(data_root, env_id)
+    ctx = BootstrapContext.from_data_root(data_root, env_id)
+
+    run = SimpleNamespace(
+        run_id="r",
+        env_id=env_id,
+        final_status="error",
+        failed_step_id="bao-preflight",
+        finished_at=123.0,
+        steps=[
+            SimpleNamespace(id="bao-preflight"),
+            SimpleNamespace(id="configure"),
+            SimpleNamespace(id="verify"),
+        ],
+    )
+
+    make_resume_journal_fn(ctx)(run)
+
+    cursor = json.loads(_resume_cursor_path(data_root, env_id).read_text())
+    assert cursor["failed_step_id"] == "configure"
+
+
+def test_retry_heals_after_canonical_preflight_cursor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DISCRIMINATING: post-fix canonical cursor (failed_step_id='configure') →
+    retry succeeds AND re-injects bao-preflight at the head of the slice.
+
+    Proves the end-to-end heal: preflight-fail → canonical cursor → retry
+    rebuilds the full slice including a fresh bao-preflight.
+    """
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+    _write_resume_cursor(data_root, env_id, failed_step_id="configure")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+
+    monkeypatch.setattr(
+        "dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps()
+    )
+    monkeypatch.setattr(
+        "dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {}
+    )
+    spawned: list[BootstrapRun] = []
+    monkeypatch.setattr(
+        "dmf_init.main.run_worker", lambda run: spawned.append(run)
+    )
+
+    _seed_current_download(app, env_id)
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"env_id": env_id, "passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert len(spawned) == 1
+    assert spawned[0].steps[0].id == "bao-preflight"
