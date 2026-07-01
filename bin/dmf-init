@@ -369,11 +369,11 @@ main() {
   esac
   while [ $# -gt 0 ]; do
     case "$1" in
-      --image)         IMAGE="${2:?--image needs a value}"; shift 2 ;;
-      --port)          HOST_PORT="${2:?--port needs a value}"; shift 2 ;;
-      --tls)           TLS=true; shift ;;
-      --repo-base-url) REPO_BASE_URL="${2:?--repo-base-url needs a value}"; shift 2 ;;
-      --dev-no-tmpfs)  DEV_NO_TMPFS=true; shift ;;
+      --image)         [ "$cmd" = up ] || die "--image only applies to 'dmf-init up'."; IMAGE="${2:?--image needs a value}"; shift 2 ;;
+      --port)          [ "$cmd" = up ] || die "--port only applies to 'dmf-init up'."; HOST_PORT="${2:?--port needs a value}"; shift 2 ;;
+      --tls)           [ "$cmd" = up ] || die "--tls only applies to 'dmf-init up'."; TLS=true; shift ;;
+      --repo-base-url) [ "$cmd" = up ] || die "--repo-base-url only applies to 'dmf-init up'."; REPO_BASE_URL="${2:?--repo-base-url needs a value}"; shift 2 ;;
+      --dev-no-tmpfs)  [ "$cmd" = up ] || die "--dev-no-tmpfs only applies to 'dmf-init up'."; DEV_NO_TMPFS=true; shift ;;
       -h|--help)       usage; exit 0 ;;
       *)               die "unknown option '$1' (see 'dmf-init --help')." ;;
     esac
