@@ -162,6 +162,32 @@ fi
 out=$( FAKE_RUNNING=1 FAKE_LABEL="" "$LAUNCHER" status 2>&1 )
 case "$out" in *"not created by this launcher"*) ok "status reports a foreign container" ;; *) bad "status foreign (got: $out)" ;; esac
 
+echo "up-only option guards:"
+# discriminator: down --port must be REJECTED (old code silently accepted it)
+if out=$( FAKE_EXISTS=1 FAKE_LABEL="dmf-init" "$LAUNCHER" down --port 9000 2>&1 ); then
+  bad "down --port must be rejected (exited 0)"
+else
+  case "$out" in *"--port"*) ok "down --port rejected with --port in message" ;; *) bad "down --port message missing --port (got: $out)" ;; esac
+fi
+# all five up-only flags rejected on a non-up subcommand
+for flag in "--image foo" "--port 9000" "--tls" "--repo-base-url http://x" "--dev-no-tmpfs"; do
+  # shellcheck disable=SC2086  # word-split intentional: "--image foo" → two args
+  if FAKE_EXISTS=1 FAKE_LABEL="dmf-init" "$LAUNCHER" down $flag >/dev/null 2>&1; then
+    bad "down $flag must be rejected"
+  else
+    ok "down $flag rejected"
+  fi
+done
+# -h/--help still works on non-up subcommands
+if FAKE_EXISTS=0 FAKE_RUNNING=0 "$LAUNCHER" down --help >/dev/null 2>&1; then
+  ok "down --help still works"
+else
+  bad "down --help must still work"
+fi
+# status with no up-only flags still succeeds
+out=$( FAKE_RUNNING=1 FAKE_LABEL="dmf-init" FAKE_PORTLINES="8000/tcp|127.0.0.1|8000" FAKE_TMPFS='{"/tmp/dmf-init-data":""}' FAKE_LOGS_TOKEN="$NEW" "$LAUNCHER" status 2>&1 )
+case "$out" in *"link:"*) ok "status with no up-only flags succeeds" ;; *) bad "status clean invocation (got: $out)" ;; esac
+
 echo "verify_container_safe:"
 run_verify() { # exports FAKE_* into the sourced verify call
   ( export PATH FAKE_PORTLINES="$1" FAKE_TMPFS="${2:-{\"/tmp/dmf-init-data\":\"\"}}"
