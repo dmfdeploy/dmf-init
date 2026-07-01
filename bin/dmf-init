@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# dmf-init — one-command launcher for the dmf-init bootstrap container.
+#
+# Hides Docker: starts the container with the correct (loopback + tmpfs) flags,
+# waits until it is ready, extracts the one-time launch token, and opens your
+# browser — instead of pasting a docker command and hunting a token URL out of
+# the logs.
+#
+# Usage:
+#   dmf-init up        start the container and open the browser
+#   dmf-init link      re-mint the single-use launch link and reopen it
+#   dmf-init status    is it running? print the current link
+#   dmf-init logs      follow the container logs
+#   dmf-init down      stop and remove the container
+#
+# Options for `up`:
+#   --image REF        container image (default ghcr.io/dmfdeploy/dmf-init:latest)
+#   --port N           host port to publish on (default 8000; container stays 8000)
+#   --tls              serve HTTPS (self-signed; DMF_TLS_ENABLED=true)
+#   --repo-base-url U  fetch component repos from a private mirror
+#   --dev-no-tmpfs     DEV/TEST ONLY: skip the tmpfs data root. Refused unless the
+#                      env var DMF_INIT_DEV_NO_TMPFS=1 is ALSO set. This disables
+#                      the guarantee that env secrets stay in RAM (ADR-0044).
+#   -h, --help         show this help
+#
+# Security invariants (never weakened): the container is published on
+# 127.0.0.1 only, its data root is tmpfs, and the single-use launch token is
+# surfaced — never bypassed.
+set -euo pipefail
+
+CONTAINER_NAME="dmf-init"
+LABEL_KEY="org.dmfdeploy.launcher"
+LABEL_VAL="dmf-init"
+DEFAULT_IMAGE="ghcr.io/dmfdeploy/dmf-init:latest"
+DATA_ROOT="/tmp/dmf-init-data"
+INTERNAL_PORT=8000
+READY_TIMEOUT=45
+REMINT_TIMEOUT=15
+
+# up-command options (mutated by the arg parser)
+IMAGE="$DEFAULT_IMAGE"
+HOST_PORT=8000
+TLS=false
+REPO_BASE_URL=""
+DEV_NO_TMPFS=false
+
+# `link` follower handles (script-global so the EXIT trap can always see them)
+LINK_FOLLOWER=""
+LINK_TMPF=""
+
+# ── small helpers ───────────────────────────────────────────────────────────
+die()  { echo "dmf-init: $*" >&2; exit 1; }
+warn() { echo "dmf-init: $*" >&2; }
+info() { echo "==> $*"; }
+usage() {
+  # Read the header comment only from a REAL on-disk source file. When piped
+  # (curl … | bash) BASH_SOURCE[0] is unset and $0 is "bash" — never fall back to
+  # $0 (a stray ./bash file would be parsed) — and a /dev/fd process-sub yields
+  # nothing on re-read, so capture the awk output and fall back if it's empty.
+  local self="${BASH_SOURCE[0]-}" help=""
+  if [ -n "$self" ] && [ -f "$self" ]; then
+    help=$(awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$self" 2>/dev/null || true)
+  fi
+  if [ -n "$help" ]; then
+    printf '%s\n' "$help"
+  else
+    cat <<'USAGE'
+dmf-init — one-command launcher for the dmf-init bootstrap container.
+
+Usage: dmf-init {up|link|status|logs|down} [options]
+  up      start the container and open the browser
+  link    re-mint the single-use launch link and reopen it
+  status  is it running? print the current link
+  logs    follow the container logs
+  down    stop and remove the container
+
+Options for `up`: --image REF | --port N | --tls | --repo-base-url URL | --dev-no-tmpfs
+See https://github.com/dmfdeploy/dmf-init for details.
+USAGE
+  fi
+}
+
+scheme() { if [ "$TLS" = true ]; then echo https; else echo http; fi; }
+
+is_valid_port() {
+  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+# Print the launch token from log text on stdin, or return 1 if none present.
+# Parses the TOKEN (not the URL): the container prints its INTERNAL host:port,
+# which is wrong under a --port remap, so we only trust the token and synthesise
+# the reachable URL ourselves. Takes the LAST match so a SIGHUP re-mint (which
+# leaves the old line in the log) resolves to the fresh token.
+extract_token() {
+  local line
+  line=$(grep -aE '^open https?://[^[:space:]]*/\?token=[A-Za-z0-9_-]{32,}$' | tail -n1) || true
+  [ -n "$line" ] || return 1
+  printf '%s\n' "${line##*token=}"
+}
+
+synth_url() { printf '%s://127.0.0.1:%s/?token=%s\n' "$(scheme)" "$HOST_PORT" "$1"; }
+
+# Best-effort browser open — NEVER gates launcher success; the URL is always
+# printed separately so a headless/SSH user can copy it.
+open_url() {
+  local url="$1"
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    ( xdg-open "$url" >/dev/null 2>&1 & ) || true
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    cmd.exe /c start "" "$url" >/dev/null 2>&1 || true
+  fi
+}
+
+need_docker() {
+  command -v docker >/dev/null 2>&1 || die "Docker not found — install Docker Desktop (https://docs.docker.com/get-docker/)."
+  docker info >/dev/null 2>&1 || die "Docker daemon not reachable — start Docker Desktop (or 'colima start') and retry."
+}
+
+curl_healthz() {
+  local url; url="$(scheme)://127.0.0.1:${HOST_PORT}/healthz"
+  if [ "$TLS" = true ]; then
+    curl -kfsS -o /dev/null "$url"
+  else
+    curl -fsS -o /dev/null "$url"
+  fi
+}
+
+# ── container introspection ─────────────────────────────────────────────────
+container_exists()  { [ -n "$(docker ps -aq -f "name=^${CONTAINER_NAME}$" 2>/dev/null)" ]; }
+container_running() { [ -n "$(docker ps  -q -f "name=^${CONTAINER_NAME}$" 2>/dev/null)" ]; }
+
+container_is_ours() {
+  local v
+  v=$(docker inspect -f "{{ index .Config.Labels \"${LABEL_KEY}\" }}" "$CONTAINER_NAME" 2>/dev/null) || return 1
+  [ "$v" = "$LABEL_VAL" ]
+}
+
+# Refuse to touch a container that doesn't uphold the invariants. Inspects the
+# INTERNAL_PORT binding specifically: EVERY published binding must be exactly
+# loopback on the one internal port with a single host port — a stray 0.0.0.0 or
+# any other published port fails closed (a blob "contains 127.0.0.1" check would
+# not catch a second, exposed binding).
+verify_container_safe() {
+  local lines proto ip port seen=0 tmpfs
+  lines=$(docker inspect \
+      -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{$p}}|{{.HostIp}}|{{.HostPort}}{{println}}{{end}}{{end}}' \
+      "$CONTAINER_NAME" 2>/dev/null) || return 1
+  while IFS='|' read -r proto ip port; do
+    [ -n "$proto" ] || continue
+    [ "$proto" = "${INTERNAL_PORT}/tcp" ] || return 1   # some other port is published
+    [ "$ip" = "127.0.0.1" ] || return 1                 # a non-loopback binding
+    [ -n "$port" ] || return 1
+    seen=$((seen + 1))
+  done <<EOF
+$lines
+EOF
+  [ "$seen" -eq 1 ] || return 1                          # exactly one host port
+
+  tmpfs=$(docker inspect -f '{{json .HostConfig.Tmpfs}}' "$CONTAINER_NAME" 2>/dev/null || echo 'null')
+  case "$tmpfs" in
+    *"$DATA_ROOT"*) return 0 ;;
+    # dev-no-tmpfs containers carry the explicit allow-flag instead
+    *) docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" 2>/dev/null \
+         | grep -qx 'DMF_ALLOW_NON_TMPFS_DATA_ROOT=true' ;;
+  esac
+}
+
+require_ours() {
+  container_is_ours || die "a container named '${CONTAINER_NAME}' exists but was not created by this launcher — refusing to touch it. Remove it yourself if intended."
+}
+
+# Tear down the `link` log follower. Guards on ${var:-} so it is safe both while
+# cmd_link's locals are live (INT/TERM/die) and after they've gone out of scope
+# (the EXIT trap firing at normal script end).
+link_cleanup() {
+  [ -n "${LINK_FOLLOWER:-}" ] && kill "$LINK_FOLLOWER" 2>/dev/null || true
+  [ -n "${LINK_TMPF:-}" ] && rm -f "$LINK_TMPF"
+}
+require_safe() {
+  verify_container_safe || die "the '${CONTAINER_NAME}' container does not meet the loopback/tmpfs invariants — refusing to use it."
+}
+
+# Recover HOST_PORT / TLS from a running container (for status/link, where the
+# original flags aren't known). Reads only the INTERNAL_PORT binding's host port.
+derive_from_container() {
+  local p
+  p=$(docker inspect \
+      -f "{{range \$b := (index .HostConfig.PortBindings \"${INTERNAL_PORT}/tcp\")}}{{.HostPort}}{{end}}" \
+      "$CONTAINER_NAME" 2>/dev/null) || true
+  [ -n "$p" ] && HOST_PORT="$p"
+  if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" 2>/dev/null | grep -qx 'DMF_TLS_ENABLED=true'; then
+    TLS=true
+  fi
+}
+
+# ── subcommands ─────────────────────────────────────────────────────────────
+cmd_up() {
+  need_docker
+  is_valid_port "$HOST_PORT" || die "--port must be an integer 1-65535 (got '${HOST_PORT}')."
+
+  if [ "$DEV_NO_TMPFS" = true ]; then
+    [ "${DMF_INIT_DEV_NO_TMPFS:-}" = "1" ] \
+      || die "--dev-no-tmpfs also requires DMF_INIT_DEV_NO_TMPFS=1 in the environment. It disables the RAM-only secret guard (ADR-0044) — dev/test only."
+    warn "WARNING: running WITHOUT tmpfs — env secrets may touch host disk. Dev/test only."
+  fi
+
+  if container_exists; then
+    if container_running && container_is_ours; then
+      if verify_container_safe; then
+        derive_from_container
+        info "dmf-init is already running; reusing it."
+        local tok; tok=$(docker logs "$CONTAINER_NAME" 2>/dev/null | extract_token) || tok=""
+        if [ -n "$tok" ]; then
+          local url; url=$(synth_url "$tok")
+          echo "open: $url"
+          echo "(if the link is expired, run: dmf-init link)"
+          open_url "$url"
+          return 0
+        fi
+        die "running container has no readable launch link — try 'dmf-init link'."
+      fi
+      die "a running '${CONTAINER_NAME}' container does not meet the loopback/tmpfs invariants — refusing to touch it."
+    fi
+    if container_is_ours; then
+      info "removing a previous (stopped) dmf-init container."
+      docker rm -f "$CONTAINER_NAME" >/dev/null
+    else
+      die "a container named '${CONTAINER_NAME}' exists but was not created by this launcher — refusing to clobber it. Remove it yourself if intended."
+    fi
+  fi
+
+  local run_args=( run -d --name "$CONTAINER_NAME" --label "${LABEL_KEY}=${LABEL_VAL}"
+                   -p "127.0.0.1:${HOST_PORT}:${INTERNAL_PORT}" )
+  if [ "$DEV_NO_TMPFS" = true ]; then
+    run_args+=( -e DMF_ALLOW_NON_TMPFS_DATA_ROOT=true )
+  else
+    run_args+=( --tmpfs "$DATA_ROOT" )
+  fi
+  [ "$TLS" = true ] && run_args+=( -e DMF_TLS_ENABLED=true )
+  [ -n "$REPO_BASE_URL" ] && run_args+=( -e "DMF_REPO_BASE_URL=${REPO_BASE_URL}" )
+  run_args+=( "$IMAGE" )
+
+  info "starting dmf-init (${IMAGE})…"
+  docker "${run_args[@]}" >/dev/null
+
+  local token
+  if token=$(wait_ready); then
+    local url; url=$(synth_url "$token")
+    echo
+    echo "  dmf-init is ready — opening your browser:"
+    echo "    $url"
+    echo
+    echo "  (single-use link. 'dmf-init link' re-mints it; 'dmf-init down' stops.)"
+    open_url "$url"
+  else
+    die "dmf-init did not become ready — see the logs above. 'dmf-init down' to clean up."
+  fi
+}
+
+# Wait — under ONE deadline — for BOTH a launch token in the logs AND a healthy
+# host port. Fail fast (dumping logs) if the container exits meanwhile.
+wait_ready() {
+  local deadline=$(( SECONDS + READY_TIMEOUT )) token=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! container_running; then
+      warn "container exited during startup; logs follow:"
+      docker logs "$CONTAINER_NAME" >&2 || true
+      return 1
+    fi
+    if [ -z "$token" ]; then
+      token=$(docker logs "$CONTAINER_NAME" 2>/dev/null | extract_token) || token=""
+    fi
+    if [ -n "$token" ] && curl_healthz; then
+      printf '%s\n' "$token"
+      return 0
+    fi
+    sleep 1
+  done
+  warn "timed out after ${READY_TIMEOUT}s; logs follow:"
+  docker logs "$CONTAINER_NAME" >&2 || true
+  return 1
+}
+
+cmd_link() {
+  need_docker
+  container_running || die "dmf-init is not running — start it with 'dmf-init up'."
+  require_ours
+  require_safe
+  derive_from_container
+
+  LINK_TMPF=$(mktemp)
+  # Tear the follower down on every exit path so re-mints never leak tails.
+  trap link_cleanup EXIT INT TERM
+  # Follow ONLY new log lines, started BEFORE the signal so we read the fresh
+  # token deterministically (not a stale one from the historical log).
+  docker logs --tail 0 -f "$CONTAINER_NAME" >"$LINK_TMPF" 2>/dev/null &
+  LINK_FOLLOWER=$!
+  sleep 1
+
+  info "re-minting launch link…"
+  docker kill --signal=HUP "$CONTAINER_NAME" >/dev/null
+
+  local deadline=$(( SECONDS + REMINT_TIMEOUT )) token=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    token=$(extract_token <"$LINK_TMPF") || token=""
+    [ -n "$token" ] && break
+    sleep 1
+  done
+  [ -n "$token" ] || die "re-mint did not produce a fresh link within ${REMINT_TIMEOUT}s."
+
+  local url; url=$(synth_url "$token")
+  echo "new link: $url"
+  open_url "$url"
+  link_cleanup
+  trap - EXIT INT TERM
+}
+
+cmd_status() {
+  need_docker
+  if container_running; then
+    if container_is_ours && verify_container_safe; then
+      derive_from_container
+      echo "dmf-init: running (port ${HOST_PORT}, $(scheme))"
+      local tok; tok=$(docker logs "$CONTAINER_NAME" 2>/dev/null | extract_token) || tok=""
+      if [ -n "$tok" ]; then
+        echo "link: $(synth_url "$tok")"
+        echo "(if expired: dmf-init link)"
+      fi
+    else
+      echo "dmf-init: a container named '${CONTAINER_NAME}' is running but was not created by this launcher (or fails its invariants) — not managed here."
+    fi
+  elif container_exists; then
+    if container_is_ours; then
+      echo "dmf-init: exited — 'dmf-init logs' to inspect, 'dmf-init down' to remove."
+    else
+      echo "dmf-init: a foreign container named '${CONTAINER_NAME}' exists — not managed by this launcher."
+    fi
+  else
+    echo "dmf-init: not created — 'dmf-init up' to start."
+  fi
+}
+
+cmd_logs() {
+  need_docker
+  container_exists || die "no dmf-init container exists."
+  require_ours
+  docker logs -f "$CONTAINER_NAME"
+}
+
+cmd_down() {
+  need_docker
+  if container_exists; then
+    require_ours
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+    echo "dmf-init: stopped and removed."
+  else
+    echo "dmf-init: nothing to remove."
+  fi
+}
+
+# ── arg parsing + dispatch ──────────────────────────────────────────────────
+main() {
+  local cmd="${1:-}"; [ $# -gt 0 ] && shift || true
+  case "$cmd" in
+    ""|-h|--help|help) usage; exit 0 ;;
+  esac
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --image)         IMAGE="${2:?--image needs a value}"; shift 2 ;;
+      --port)          HOST_PORT="${2:?--port needs a value}"; shift 2 ;;
+      --tls)           TLS=true; shift ;;
+      --repo-base-url) REPO_BASE_URL="${2:?--repo-base-url needs a value}"; shift 2 ;;
+      --dev-no-tmpfs)  DEV_NO_TMPFS=true; shift ;;
+      -h|--help)       usage; exit 0 ;;
+      *)               die "unknown option '$1' (see 'dmf-init --help')." ;;
+    esac
+  done
+  case "$cmd" in
+    up)     cmd_up ;;
+    link)   cmd_link ;;
+    status) cmd_status ;;
+    logs)   cmd_logs ;;
+    down)   cmd_down ;;
+    *)      die "unknown command '$cmd' (see 'dmf-init --help')." ;;
+  esac
+}
+
+# Run main() unless this file was sourced (the test suite sources it to unit-test
+# the helpers). When piped — `curl … | bash -s -- up` — BASH_SOURCE[0] is unset,
+# so fall back to $0: piped/executed runs main, a real `source` (BASH_SOURCE != $0)
+# skips it. The :- fallback also keeps `set -u` from tripping on the unset array.
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
+  main "$@"
+fi
