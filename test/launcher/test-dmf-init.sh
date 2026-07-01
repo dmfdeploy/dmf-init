@@ -20,6 +20,8 @@ check(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want '$3', got '$2')"; 
 # 32+ char url-safe tokens (matches the container's secrets.token_urlsafe(24)).
 OLD="OLDoldOLDoldOLDoldOLDoldOLDold01_-"
 NEW="NEWnewNEWnewNEWnewNEWnewNEWnew99_-"
+JSONTOKEN="JSONTOKENjsontokenjsontoken00123"
+SCRAPETOKEN="SCRAPETOKENscrapetokenscrape0002"
 
 # ── pure helpers (sourced) ──────────────────────────────────────────────────
 echo "extract_token:"
@@ -79,7 +81,9 @@ case "\$1" in
       *)     [ "\${FAKE_RUNNING:-0}" = 1 ] && echo fakeid || true ;;
     esac ;;
   run)  shift; printf '%s\n' "\$*" >"$RUN_ARGS"; echo fakeid ;;
-  logs) printf 'open http://localhost:8000/?token=%s\n' "\${FAKE_LOGS_TOKEN:-$NEW}" ;;
+  logs)
+    [ -n "\${FAKE_DMF_LAUNCH_TOKEN:-}" ] && printf 'DMF_LAUNCH {"token":"%s","port":8000,"scheme":"http","url":"http://localhost:8000/"}\n' "\$FAKE_DMF_LAUNCH_TOKEN"
+    printf 'open http://localhost:8000/?token=%s\n' "\${FAKE_LOGS_TOKEN:-$NEW}" ;;
   kill) exit 0 ;;
   inspect)
     case "\$*" in
@@ -135,6 +139,39 @@ esac
 case "$(cat "$RUN_ARGS")" in
   *"--tmpfs"*) bad "dev-no-tmpfs must NOT mount tmpfs" ;;
   *) ok "dev-no-tmpfs omits the tmpfs mount" ;;
+esac
+
+echo "DMF_LAUNCH machine-readable sentinel:"
+# DISCRIMINATOR: both DMF_LAUNCH and open lines present with DIFFERENT tokens —
+# the launcher must prefer the JSON token (old code would use the scrape token).
+out=$( FAKE_EXISTS=0 FAKE_RUNNING=1 FAKE_DMF_LAUNCH_TOKEN="$JSONTOKEN" FAKE_LOGS_TOKEN="$SCRAPETOKEN" "$LAUNCHER" up 2>&1 )
+case "$out" in
+  *"$JSONTOKEN"*) ok "prefers DMF_LAUNCH token over scrape token" ;;
+  *) bad "DMF_LAUNCH preference (got: $(printf '%s' "$out" | tr '\n' '|'))" ;;
+esac
+case "$out" in
+  *"$SCRAPETOKEN"*) bad "must NOT use scrape token when DMF_LAUNCH present" ;;
+  *) ok "scrape token absent when DMF_LAUNCH present" ;;
+esac
+
+# FALLBACK: only the open line (no DMF_LAUNCH) — must still resolve the token.
+out=$( FAKE_EXISTS=0 FAKE_RUNNING=1 FAKE_LOGS_TOKEN="$NEW" "$LAUNCHER" up 2>&1 )
+case "$out" in
+  *"$NEW"*) ok "falls back to scrape token when no DMF_LAUNCH line" ;;
+  *) bad "scrape fallback (got: $(printf '%s' "$out" | tr '\n' '|'))" ;;
+esac
+
+# docker run args must include DMF_LAUNCH_JSON=true
+case "$(cat "$RUN_ARGS")" in
+  *"-e DMF_LAUNCH_JSON=true"*) ok "passes DMF_LAUNCH_JSON=true to container" ;;
+  *) bad "DMF_LAUNCH_JSON env var missing from run args" ;;
+esac
+
+# present-but-unparseable: short token in DMF_LAUNCH must fall back to scrape
+out=$( FAKE_EXISTS=0 FAKE_RUNNING=1 FAKE_DMF_LAUNCH_TOKEN="SHORT" FAKE_LOGS_TOKEN="$NEW" "$LAUNCHER" up 2>&1 )
+case "$out" in
+  *"$NEW"*) ok "short sentinel token falls back to scrape" ;;
+  *) bad "short sentinel fallback (got: $(printf '%s' "$out" | tr '\n' '|'))" ;;
 esac
 
 echo "ownership / safety guards:"

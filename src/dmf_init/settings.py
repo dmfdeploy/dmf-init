@@ -64,6 +64,10 @@ class Settings:
     # load_settings() turns it on for the real runtime unless the operator sets
     # DMF_ALLOW_NON_TMPFS_DATA_ROOT=true (a deliberate dev/test escape hatch).
     require_tmpfs_data_root: bool = False
+    # Machine-readable launch sentinel (DMF_LAUNCH_JSON=true): when on, the
+    # container additionally prints a parseable `DMF_LAUNCH {json}` line so the
+    # launcher can extract the token without scraping human-formatted log text.
+    launch_json: bool = False
 
 
 def load_settings() -> Settings:
@@ -98,4 +102,5 @@ def load_settings() -> Settings:
         require_tmpfs_data_root=(
             os.getenv("DMF_ALLOW_NON_TMPFS_DATA_ROOT", "false").lower().strip() != "true"
         ),
+        launch_json=os.getenv("DMF_LAUNCH_JSON", "false").lower().strip() == "true",
     )

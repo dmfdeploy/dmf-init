@@ -14,7 +14,7 @@ from dmf_init.logging_utils import (
     JSONLogFormatter,
     scrub_token_from_url,
 )
-from dmf_init.main import create_app
+from dmf_init.main import LaunchTokenState, _print_launch_link, create_app
 from dmf_init.orchestrate import BootstrapRun
 from dmf_init.repos import RepoFetchRequest, fetch_runtime_repos
 from dmf_init.settings import Settings
@@ -755,3 +755,31 @@ def test_render_create_new_flag_resets_after_stream(tmp_path: Path) -> None:
     # the important thing is it doesn't get 409).
     with client.stream("POST", "/api/render", json=_render_payload()) as resp2:
         assert resp2.status_code == 200
+
+
+# ── _print_launch_link: DMF_LAUNCH machine-readable sentinel ──────────────
+
+def test_print_launch_link_emits_dmf_launch_when_launch_json_true(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = LaunchTokenState(token="testtoken_testtoken_testtoken_01", issued_at=0.0)
+    settings = Settings(launch_json=True, bind_port=9000, tls_enabled=False)
+    _print_launch_link(state, settings)
+    captured = capsys.readouterr().out
+    dmf_lines = [ln for ln in captured.splitlines() if ln.startswith("DMF_LAUNCH ")]
+    assert len(dmf_lines) == 1
+    payload = json.loads(dmf_lines[0].removeprefix("DMF_LAUNCH "))
+    assert payload["token"] == "testtoken_testtoken_testtoken_01"
+    assert payload["port"] == 9000
+    assert payload["scheme"] == "http"
+    assert payload["url"] == "http://127.0.0.1:9000/"
+
+
+def test_print_launch_link_no_dmf_launch_when_launch_json_false(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = LaunchTokenState(token="testtoken_testtoken_testtoken_02", issued_at=0.0)
+    settings = Settings(launch_json=False)
+    _print_launch_link(state, settings)
+    captured = capsys.readouterr().out
+    assert not any(ln.startswith("DMF_LAUNCH ") for ln in captured.splitlines())

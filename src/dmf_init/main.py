@@ -293,6 +293,13 @@ def _print_launch_link(state: LaunchTokenState, settings: Settings) -> None:
         f"~{idle_h:.0f}h idle and refreshes while you're active)",
         flush=True,
     )
+    if settings.launch_json:
+        sentinel = json.dumps(
+            {"token": state.token, "port": settings.bind_port,
+             "scheme": scheme, "url": launch_url},
+            separators=(",", ":"),
+        )
+        print(f"DMF_LAUNCH {sentinel}", flush=True)
     if settings.tls_enabled:
         print(
             "  note: the self-signed cert shows a one-time 'Not secure' warning — "
