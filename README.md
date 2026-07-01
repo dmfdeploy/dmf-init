@@ -98,16 +98,20 @@ Pick based on whether the host has **runtime network access**:
 
 ```bash
 docker run --rm -p 127.0.0.1:8000:8000 \
-  --tmpfs /tmp/dmf-init-data \
+  --tmpfs /tmp/dmf-init-data:exec \
   ghcr.io/dmfdeploy/dmf-init:latest
 # open the http://localhost:8000/?token=... printed in the logs
 ```
 
-> **`--tmpfs /tmp/dmf-init-data` is required** (ADR-0044): env secrets (age key,
-> OpenBao keys) must stay in RAM and never touch host disk. dmf-init **refuses to
-> start** if its data root isn't tmpfs-backed. For a throwaway dev run on a
-> non-tmpfs root, override with `-e DMF_ALLOW_NON_TMPFS_DATA_ROOT=true` (dev/test
-> only). `docker rm` stays safe because nothing durable is written to host disk.
+> **`--tmpfs /tmp/dmf-init-data:exec` is required** (ADR-0044): env secrets (age
+> key, OpenBao keys) must stay in RAM and never touch host disk. The `:exec`
+> mount option is needed because the data root holds and runs the fetched wizard
+> toolchain; without it Docker's default `noexec` mount flag blocks script
+> execution (rc 126). The mount is still tmpfs, so ADR-0044 (RAM-only secrets)
+> holds. dmf-init **refuses to start** if its data root isn't tmpfs-backed or is
+> mounted `noexec`. For a throwaway dev run on a non-tmpfs root, override with
+> `-e DMF_ALLOW_NON_TMPFS_DATA_ROOT=true` (dev/test only). `docker rm` stays
+> safe because nothing durable is written to host disk.
 
 Repos are fetched from the public org `https://github.com/dmfdeploy` by default —
 no extra env needed. To pull from a private mirror, override the base URL (and
@@ -115,7 +119,7 @@ optionally supply credentials):
 
 ```bash
 docker run --rm -p 127.0.0.1:8000:8000 \
-  --tmpfs /tmp/dmf-init-data \
+  --tmpfs /tmp/dmf-init-data:exec \
   -e DMF_REPO_BASE_URL=https://git.example.com/dmf \
   ghcr.io/dmfdeploy/dmf-init:latest
 ```
@@ -131,7 +135,7 @@ bin/build-bundle.sh                 # → dmf-init-bundle-<version>.tar.gz
 
 # copy that tarball to the clean host, then there:
 docker load -i dmf-init-bundle-<version>.tar.gz
-docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data dmf-init:bundle
+docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data:exec dmf-init:bundle
 # open the http://localhost:8000/?token=... printed in the logs
 ```
 

@@ -19,10 +19,15 @@ from dmf_init.settings import Settings, load_settings
 
 @pytest.fixture
 def fake_fs(monkeypatch):
-    """Force data_root_fs_type to a chosen value (platform-independent)."""
+    """Force _resolve_mount_entry to a chosen fs_type + options (platform-independent)."""
 
-    def _set(fs_type: str | None) -> None:
-        monkeypatch.setattr(manage, "data_root_fs_type", lambda _p: fs_type)
+    def _set(fs_type: str | None, opts: set[str] | None = None) -> None:
+        if fs_type is None:
+            monkeypatch.setattr(manage, "_resolve_mount_entry", lambda _p: None)
+        else:
+            monkeypatch.setattr(
+                manage, "_resolve_mount_entry", lambda _p: (fs_type, opts or set())
+            )
 
     return _set
 
@@ -59,6 +64,29 @@ def test_undeterminable_on_linux_fails_closed_when_enforced(fake_fs, tmp_path, m
     monkeypatch.setattr(manage.sys, "platform", "linux")
     with pytest.raises(DataRootNotTmpfsError):
         assert_data_root_tmpfs(tmp_path, enforce=True)  # can't prove RAM-backing → refuse
+
+
+# --- noexec guard (issue #162) -----------------------------------------------
+
+
+def test_tmpfs_noexec_raises_when_enforced(fake_fs, tmp_path: Path) -> None:
+    """DISCRIMINATOR: tmpfs + noexec must be refused (old guard ignores options)."""
+    fake_fs("tmpfs", {"rw", "nosuid", "nodev", "noexec"})
+    with pytest.raises(DataRootNotTmpfsError, match="noexec"):
+        assert_data_root_tmpfs(tmp_path, enforce=True)
+
+
+def test_tmpfs_noexec_warns_when_not_enforced(fake_fs, tmp_path: Path, caplog) -> None:
+    fake_fs("tmpfs", {"rw", "nosuid", "nodev", "noexec"})
+    with caplog.at_level(logging.WARNING):
+        assert_data_root_tmpfs(tmp_path, enforce=False)  # no raise
+    assert any("noexec" in r.message for r in caplog.records)
+
+
+def test_tmpfs_exec_passes_when_enforced(fake_fs, tmp_path: Path) -> None:
+    """tmpfs with exec (no noexec in options) passes cleanly."""
+    fake_fs("tmpfs", {"rw", "nosuid", "nodev"})
+    assert_data_root_tmpfs(tmp_path, enforce=True)  # no raise
 
 
 # --- startup gate -------------------------------------------------------------

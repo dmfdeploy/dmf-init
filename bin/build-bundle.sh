@@ -3,7 +3,7 @@
 # repos baked in) and export it as a portable `docker load` tarball. No registry,
 # no source checkout, no bind-mounts needed on the target host:
 #   docker load -i <tarball>
-#   docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data dmf-init:bundle
+#   docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data:exec dmf-init:bundle
 #   # open the http://localhost:8000/?token=... printed in the logs
 #
 # REPO SOURCE (two modes):
@@ -127,6 +127,6 @@ sed -n '/"repos"/,/]/p' "$prov" | grep -oE '"name": "[^"]+"|"sha": "[^"]{7}' | p
 echo
 echo "done: ${TARBALL}  ($(du -h "${TARBALL}" | cut -f1))"
 echo "  docker load -i $(basename "${TARBALL}")"
-echo "  docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data ${IMAGE}"
-echo "  (--tmpfs is required: env secrets stay in RAM, never on host disk — ADR-0044)"
+echo "  docker run --rm -p 127.0.0.1:8000:8000 --tmpfs /tmp/dmf-init-data:exec ${IMAGE}"
+echo "  (--tmpfs :exec is required: env secrets stay in RAM, never on host disk — ADR-0044)"
 echo "  (HTTPS opt-in for non-localhost: add -e DMF_TLS_ENABLED=true)"

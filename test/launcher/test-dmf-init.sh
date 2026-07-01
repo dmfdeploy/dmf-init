@@ -88,6 +88,7 @@ case "\$1" in
   inspect)
     case "\$*" in
       *"index .HostConfig.PortBindings"*) printf '%s' "\${FAKE_DERIVE_PORT:-}" ;;
+      *"index .HostConfig.Tmpfs"*)        printf '%s' "\${FAKE_TMPFS_OPTS:-}" ;;
       *"HostConfig.PortBindings"*)        printf '%s\n' "\${FAKE_PORTLINES:-}" ;;
       *Config.Labels*)                    printf '%s' "\${FAKE_LABEL:-}" ;;
       *HostConfig.Tmpfs*)                 printf '%s' "\${FAKE_TMPFS:-null}" ;;
@@ -116,8 +117,8 @@ case "$(cat "$RUN_ARGS")" in
   *) bad "loopback publish mapping" ;;
 esac
 case "$(cat "$RUN_ARGS")" in
-  *"--tmpfs /tmp/dmf-init-data"*) ok "mounts tmpfs data root by default" ;;
-  *) bad "default tmpfs mount" ;;
+  *"--tmpfs /tmp/dmf-init-data:exec"*) ok "mounts tmpfs :exec data root by default" ;;
+  *) bad "default tmpfs :exec mount (DISCRIMINATOR: fails on old launcher)" ;;
 esac
 
 # --dev-no-tmpfs refused without the extra env gate
@@ -222,17 +223,27 @@ else
   bad "down --help must still work"
 fi
 # status with no up-only flags still succeeds
-out=$( FAKE_RUNNING=1 FAKE_LABEL="dmf-init" FAKE_PORTLINES="8000/tcp|127.0.0.1|8000" FAKE_TMPFS='{"/tmp/dmf-init-data":""}' FAKE_LOGS_TOKEN="$NEW" "$LAUNCHER" status 2>&1 )
+out=$( FAKE_RUNNING=1 FAKE_LABEL="dmf-init" FAKE_PORTLINES="8000/tcp|127.0.0.1|8000" FAKE_TMPFS='{"/tmp/dmf-init-data":"exec"}' FAKE_TMPFS_OPTS="exec" FAKE_LOGS_TOKEN="$NEW" "$LAUNCHER" status 2>&1 )
 case "$out" in *"link:"*) ok "status with no up-only flags succeeds" ;; *) bad "status clean invocation (got: $out)" ;; esac
 
 echo "verify_container_safe:"
 run_verify() { # exports FAKE_* into the sourced verify call
-  ( export PATH FAKE_PORTLINES="$1" FAKE_TMPFS="${2:-{\"/tmp/dmf-init-data\":\"\"}}"
+  ( export PATH FAKE_PORTLINES="$1" FAKE_TMPFS="${2:-{\"/tmp/dmf-init-data\":\"exec\"}}" FAKE_TMPFS_OPTS="${3-exec}"
     . "$LAUNCHER"; verify_container_safe )
 }
-if run_verify "8000/tcp|127.0.0.1|8017" >/dev/null 2>&1; then ok "accepts single loopback binding + tmpfs"; else bad "accepts single loopback binding"; fi
+if run_verify "8000/tcp|127.0.0.1|8017" >/dev/null 2>&1; then ok "accepts single loopback binding + tmpfs :exec"; else bad "accepts single loopback binding + tmpfs :exec"; fi
 if run_verify "8000/tcp|0.0.0.0|8000" >/dev/null 2>&1; then bad "rejects a 0.0.0.0 binding"; else ok "rejects a 0.0.0.0 binding"; fi
 if run_verify "$(printf '8000/tcp|127.0.0.1|8017\n9000/tcp|127.0.0.1|9000')" >/dev/null 2>&1; then bad "rejects an extra published port"; else ok "rejects an extra published port"; fi
+# tmpfs-exec discriminators (P2: fail on old guard that ignores mount options)
+if run_verify "8000/tcp|127.0.0.1|8017" '{"/tmp/dmf-init-data":""}' "" >/dev/null 2>&1; then
+  bad "rejects tmpfs with empty opts (old default)"
+else ok "rejects tmpfs with empty opts (old default)"; fi
+if run_verify "8000/tcp|127.0.0.1|8017" '{"/tmp/dmf-init-data":"noexec"}' "noexec" >/dev/null 2>&1; then
+  bad "rejects tmpfs with noexec"
+else ok "rejects tmpfs with noexec"; fi
+if run_verify "8000/tcp|127.0.0.1|8017" '{"/tmp/dmf-init-data":"exec"}' "exec" >/dev/null 2>&1; then
+  ok "accepts tmpfs with exec"
+else bad "accepts tmpfs with exec"; fi
 
 rm -rf "$SHIM"
 

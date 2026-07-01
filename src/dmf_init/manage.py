@@ -84,6 +84,40 @@ class DataRootNotTmpfsError(RuntimeError):
     """Raised when DMF_DATA_ROOT is not tmpfs-backed and enforcement is on."""
 
 
+def _resolve_mount_entry(data_root: Path) -> tuple[str, set[str]] | None:
+    """Return ``(fs_type, mount_options)`` for the longest matching mount of
+    ``data_root``, or ``None`` when it can't be determined.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    mounts_path = Path("/proc/mounts")
+    if not mounts_path.exists():
+        return None
+
+    mounts: list[tuple[Path, str, set[str]]] = []
+    try:
+        for raw_line in mounts_path.read_text(encoding="utf-8").splitlines():
+            fields = raw_line.split()
+            if len(fields) < 3:
+                continue
+            mount_point = Path(fields[1].replace("\\040", " "))
+            opts = set(fields[3].split(",")) if len(fields) > 3 else set()
+            mounts.append((mount_point, fields[2], opts))
+    except OSError:
+        return None
+
+    resolved = data_root.resolve()
+    for mount_point, fs_type, opts in sorted(
+        mounts, key=lambda item: len(str(item[0])), reverse=True
+    ):
+        try:
+            resolved.relative_to(mount_point.resolve())
+        except ValueError:
+            continue
+        return fs_type, opts
+    return None
+
+
 def data_root_fs_type(data_root: Path) -> str | None:
     """Return the backing filesystem type for ``data_root``.
 
@@ -92,39 +126,28 @@ def data_root_fs_type(data_root: Path) -> str | None:
     neither warn nor enforce. On Linux it returns the fs type of the longest
     matching mount point (e.g. ``tmpfs``, ``overlay``, ``ext4``).
     """
-    if not sys.platform.startswith("linux"):
-        return None
-    mounts_path = Path("/proc/mounts")
-    if not mounts_path.exists():
-        return None
+    entry = _resolve_mount_entry(data_root)
+    return entry[0] if entry else None
 
-    mounts: list[tuple[Path, str]] = []
-    try:
-        for raw_line in mounts_path.read_text(encoding="utf-8").splitlines():
-            fields = raw_line.split()
-            if len(fields) < 3:
-                continue
-            mount_point = Path(fields[1].replace("\\040", " "))
-            mounts.append((mount_point, fields[2]))
-    except OSError:
-        return None
 
-    resolved = data_root.resolve()
-    for mount_point, fs_type in sorted(mounts, key=lambda item: len(str(item[0])), reverse=True):
-        try:
-            resolved.relative_to(mount_point.resolve())
-        except ValueError:
-            continue
-        return fs_type
-    return None
+def data_root_mount_options(data_root: Path) -> set[str] | None:
+    """Return the mount options for ``data_root``, or ``None`` when unavailable.
+
+    Mirrors the same longest-prefix logic as :func:`data_root_fs_type`. Returns
+    the comma-separated mount options as a set (e.g. ``{"rw", "nosuid", "noexec"}``).
+    """
+    entry = _resolve_mount_entry(data_root)
+    return entry[1] if entry else None
 
 
 def assert_data_root_tmpfs(data_root: Path, *, enforce: bool) -> None:
-    """Check that ``data_root`` is RAM-backed (tmpfs/ramfs).
+    """Check that ``data_root`` is RAM-backed (tmpfs/ramfs) and exec-mounted.
 
     ADR-0044: env secrets must never touch host disk. Policy:
 
-    - tmpfs/ramfs → OK.
+    - tmpfs/ramfs **without noexec** → OK.
+    - tmpfs/ramfs **with noexec** → fail: the wizard toolchain must exec scripts
+      from the data root (issue #162). Mount with ``:exec`` to fix.
     - a determinable non-tmpfs fs (overlay/ext4/…) → fail.
     - **Linux but undeterminable** (no ``/proc/mounts``, read error, no matching
       mount) → **fail** when enforcing: on the Linux appliance we must not
@@ -135,9 +158,30 @@ def assert_data_root_tmpfs(data_root: Path, *, enforce: bool) -> None:
     On a fail, ``enforce`` raises ``DataRootNotTmpfsError`` (used at startup so the
     appliance refuses to run); otherwise it warns.
     """
-    fs_type = data_root_fs_type(data_root)
+    entry = _resolve_mount_entry(data_root)
+    fs_type = entry[0] if entry else None
+    mount_opts = entry[1] if entry else set()
+
     if fs_type in {"tmpfs", "ramfs"}:
+        if "noexec" in mount_opts:
+            reason = (
+                f"DMF_DATA_ROOT ({data_root}) is tmpfs but mounted noexec — "
+                "the bootstrap wizard can't exec its toolchain"
+            )
+            if enforce:
+                raise DataRootNotTmpfsError(
+                    f"{reason} (ADR-0044 needs tmpfs, not noexec). Mount with "
+                    "`--tmpfs /tmp/dmf-init-data:exec`."
+                )
+            logger.warning(
+                "data root is tmpfs but mounted noexec",
+                extra={
+                    "event": "data_root_noexec",
+                    "data_root": str(data_root),
+                },
+            )
         return
+
     if fs_type is None:
         if not sys.platform.startswith("linux"):
             return  # can't introspect off-Linux; the real appliance is Linux
@@ -148,7 +192,7 @@ def assert_data_root_tmpfs(data_root: Path, *, enforce: bool) -> None:
     if enforce:
         raise DataRootNotTmpfsError(
             f"{reason} — refusing to start so env secrets never touch host disk "
-            "(ADR-0044). Mount it as tmpfs (docker: --tmpfs /tmp/dmf-init-data), or "
+            "(ADR-0044). Mount it as tmpfs (docker: --tmpfs /tmp/dmf-init-data:exec), or "
             "set DMF_ALLOW_NON_TMPFS_DATA_ROOT=true to override (dev/test only)."
         )
     logger.warning(
