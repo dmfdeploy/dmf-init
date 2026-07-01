@@ -175,7 +175,14 @@ EOF
 
   tmpfs=$(docker inspect -f '{{json .HostConfig.Tmpfs}}' "$CONTAINER_NAME" 2>/dev/null || echo 'null')
   case "$tmpfs" in
-    *"$DATA_ROOT"*) return 0 ;;
+    *"$DATA_ROOT"*)
+      # tmpfs present — require exec mount (reject noexec / empty-old-default).
+      local opts
+      opts=$(docker inspect -f "{{ index .HostConfig.Tmpfs \"${DATA_ROOT}\" }}" "$CONTAINER_NAME" 2>/dev/null || echo '')
+      case ",${opts}," in *",noexec,"*) return 1 ;; esac
+      case ",${opts}," in *",exec,"*) return 0 ;; esac
+      return 1  # tmpfs but not exec (old default) → reject so up recreates
+      ;;
     # dev-no-tmpfs containers carry the explicit allow-flag instead
     *) docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" 2>/dev/null \
          | grep -qx 'DMF_ALLOW_NON_TMPFS_DATA_ROOT=true' ;;
@@ -194,7 +201,7 @@ link_cleanup() {
   [ -n "${LINK_TMPF:-}" ] && rm -f "$LINK_TMPF"
 }
 require_safe() {
-  verify_container_safe || die "the '${CONTAINER_NAME}' container does not meet the loopback/tmpfs invariants — refusing to use it."
+  verify_container_safe || die "the '${CONTAINER_NAME}' container does not meet the loopback/tmpfs-exec invariants — refusing to use it."
 }
 
 # Recover HOST_PORT / TLS from a running container (for status/link, where the
@@ -236,7 +243,7 @@ cmd_up() {
         fi
         die "running container has no readable launch link — try 'dmf-init link'."
       fi
-      die "a running '${CONTAINER_NAME}' container does not meet the loopback/tmpfs invariants — refusing to touch it."
+      die "a running '${CONTAINER_NAME}' container does not meet the loopback/tmpfs-exec invariants — refusing to touch it."
     fi
     if container_is_ours; then
       info "removing a previous (stopped) dmf-init container."
@@ -251,7 +258,7 @@ cmd_up() {
   if [ "$DEV_NO_TMPFS" = true ]; then
     run_args+=( -e DMF_ALLOW_NON_TMPFS_DATA_ROOT=true )
   else
-    run_args+=( --tmpfs "$DATA_ROOT" )
+    run_args+=( --tmpfs "${DATA_ROOT}:exec" )
   fi
   [ "$TLS" = true ] && run_args+=( -e DMF_TLS_ENABLED=true )
   [ -n "$REPO_BASE_URL" ] && run_args+=( -e "DMF_REPO_BASE_URL=${REPO_BASE_URL}" )
