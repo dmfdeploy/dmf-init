@@ -45,6 +45,38 @@ Architecture orientation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Run it (appliance)
 
+### Quick start (launcher)
+
+If you just want to get going, the `dmf-init` launcher wraps Docker for you — it
+starts the container with the correct flags, waits until it's ready, extracts the
+one-time launch link, and opens your browser. No clone required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dmfdeploy/dmf-init/main/bin/dmf-init | bash -s -- up
+```
+
+> Piping a script into your shell runs remote code — if you'd rather read it
+> first (recommended), download then run:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/dmfdeploy/dmf-init/main/bin/dmf-init -o dmf-init
+> less dmf-init && bash dmf-init up
+> ```
+
+From a clone, it's just `bin/dmf-init`:
+
+```bash
+bin/dmf-init up        # start + open the browser (prints the link too)
+bin/dmf-init link      # re-mint the single-use link and reopen it
+bin/dmf-init status    # is it running? show the current link
+bin/dmf-init down      # stop and remove the container
+```
+
+Options for `up`: `--port N` (default 8000), `--tls` (HTTPS), `--image REF`,
+`--repo-base-url URL` (private mirror). Run `bin/dmf-init --help` for details. The
+launcher never weakens the security posture — it always publishes on `127.0.0.1`
+only and mounts the tmpfs data root. The explicit `docker run` invocations below
+remain the advanced/reference path (and are what the launcher runs under the hood).
+
 ### Prerequisites
 
 A **BuildKit-capable Docker** is mandatory — the `Dockerfile` pins
