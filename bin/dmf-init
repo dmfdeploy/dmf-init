@@ -92,9 +92,23 @@ is_valid_port() {
 # which is wrong under a --port remap, so we only trust the token and synthesise
 # the reachable URL ourselves. Takes the LAST match so a SIGHUP re-mint (which
 # leaves the old line in the log) resolves to the fresh token.
+# Prefers the machine-readable DMF_LAUNCH sentinel over the human-formatted
+# scrape line; falls back to scraping for older container images.
 extract_token() {
-  local line
-  line=$(grep -aE '^open https?://[^[:space:]]*/\?token=[A-Za-z0-9_-]{32,}$' | tail -n1) || true
+  local input token line
+  input=$(cat)
+  # Prefer the machine-readable DMF_LAUNCH sentinel (last match wins).
+  token=$(printf '%s\n' "$input" \
+    | grep -aE '^DMF_LAUNCH ' | tail -n1 \
+    | sed -nE 's/.*"token"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]{32,})".*/\1/p') || true
+  if [ -n "$token" ]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+  # Fall back to the human-formatted open line (last match wins).
+  line=$(printf '%s\n' "$input" \
+    | grep -aE '^open https?://[^[:space:]]*/\?token=[A-Za-z0-9_-]{32,}$' \
+    | tail -n1) || true
   [ -n "$line" ] || return 1
   printf '%s\n' "${line##*token=}"
 }
@@ -241,6 +255,7 @@ cmd_up() {
   fi
   [ "$TLS" = true ] && run_args+=( -e DMF_TLS_ENABLED=true )
   [ -n "$REPO_BASE_URL" ] && run_args+=( -e "DMF_REPO_BASE_URL=${REPO_BASE_URL}" )
+  run_args+=( -e DMF_LAUNCH_JSON=true )
   run_args+=( "$IMAGE" )
 
   info "starting dmf-init (${IMAGE})…"
