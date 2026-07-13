@@ -10,9 +10,11 @@ in the umbrella repo. The three rules that matter mid-task:
    ([dmfdeploy/dmfdeploy issues](https://github.com/dmfdeploy/dmfdeploy/issues);
    milestone + `component:*`/`workstream:*` labels). Non-trivial work gets a
    plan doc in umbrella `docs/plans/` with `tracking_issue` frontmatter.
-2. **The completing PR closes the issue and flips the plan frontmatter in the
-   same change.** From a component repo, reference umbrella issues **fully
-   qualified** — `Closes dmfdeploy/dmfdeploy#N`; bare `#N` targets the wrong repo.
+2. **The completing PR auto-closes its issue; you still flip the plan
+   frontmatter by hand in that PR.** Reference umbrella issues **fully
+   qualified** — `Closes dmfdeploy/dmfdeploy#N` (bare `#N` targets the wrong
+   repo); the daily issue-close reconciler honors that ref, cross-repo
+   included. Manual close is a fallback.
 3. **Never invent a local backlog** (TODO files, ad-hoc trackers). Issues =
    liveness; plan frontmatter = design state; ADRs = decisions (RFC in
    Discussions first); STATUS.md = committed notes; STATUS.local.md = live repo snapshot.
