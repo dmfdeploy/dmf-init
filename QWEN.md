@@ -7,9 +7,11 @@ Canonical: [docs/WORKING-MODEL.md](https://github.com/dmfdeploy/dmfdeploy/blob/m
 in the umbrella repo. The three rules that matter mid-task:
 
 1. **Work starts at an issue** in the canonical backlog
-   ([dmfdeploy/dmfdeploy issues](https://github.com/dmfdeploy/dmfdeploy/issues);
-   milestone + `component:*`/`workstream:*` labels). Non-trivial work gets a
-   plan doc in umbrella `docs/plans/` with `tracking_issue` frontmatter.
+   ([dmfdeploy/dmfdeploy issues](https://github.com/dmfdeploy/dmfdeploy/issues)):
+   `component:*`/`workstream:*` labels **always**, plus a milestone **only if
+   the work is scheduled** — unscheduled work gets `platform-debt` and no
+   milestone (§2). Non-trivial work gets a plan doc in umbrella `docs/plans/`
+   with `tracking_issue` frontmatter.
 2. **The completing PR auto-closes its issue; you still flip the plan
    frontmatter by hand in that PR.** Reference umbrella issues **fully
    qualified** — `Closes dmfdeploy/dmfdeploy#N` (bare `#N` targets the wrong
