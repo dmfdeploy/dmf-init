@@ -72,6 +72,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2 — umbrella: canonical template + checker
         with:
           repository: dmfdeploy/dmfdeploy
+          ref: working-model-v1
           path: .umbrella
           persist-credentials: false
       - name: Working-model block sync (strict)
