@@ -1,5 +1,7 @@
 # dmf-init
 
+[![CI](https://github.com/dmfdeploy/dmf-init/actions/workflows/ci.yml/badge.svg)](https://github.com/dmfdeploy/dmf-init/actions/workflows/ci.yml)
+
 **Day-0 self-contained init & bootstrap container** for the DMF Platform.
 
 > **New to the project vocabulary?** See the [DMF Glossary](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/GLOSSARY.md) for project-coined terms (appliance, checkpoint, age key, answers-file, …).
