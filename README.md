@@ -16,6 +16,11 @@ Reached as `http://localhost`, which is a browser **secure context** (clipboard
 + WebAuthn work) with no certificate warning; HTTPS is opt-in for non-localhost
 access.
 
+To see what a commissioned cluster does next, an 81-second recording of one
+media workload being provisioned through the console, with a plain account of
+what it does and does not show, is on the
+[organization page](https://github.com/dmfdeploy).
+
 > **What you get (the deliverable):** a **commissioned, verified cluster** plus
 > one or more **passphrase-wrapped encrypted backups** (browser downloads). The
 > container is **disposable / run-once** — delete it when you're done and the
