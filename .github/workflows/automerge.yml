@@ -22,16 +22,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -eu
-          case " ${PR_LABELS} " in *" hold "*)
+          # Decide from the PR's labels and draft state as they are now, not
+          # from the event payload, which is a snapshot: `gh pr create --label`
+          # fires `opened` without the label, and a late `opened` run would
+          # arm a held PR (#439). If the read fails, exit non-zero without
+          # touching auto-merge, so a failed read never arms. The same holds
+          # for a reply that is not a boolean isDraft and named labels.
+          pr=$(gh pr view "${PR_URL}" --json labels,isDraft)
+          jq -e '(.isDraft | type == "boolean") and (.labels | type == "array")
+            and all(.labels[]; (.name | type) == "string")' <<<"${pr}" >/dev/null
+          labels=$(jq -r '[.labels[].name] | join(" ")' <<<"${pr}")
+          draft=$(jq -r '.isDraft' <<<"${pr}")
+          case " ${labels} " in *" hold "*)
             gh pr merge --disable-auto "${PR_URL}" || true
             echo "hold label present — auto-merge disarmed"
             exit 0 ;;
           esac
-          if [ "${PR_DRAFT}" = "true" ]; then
+          if [ "${draft}" = "true" ]; then
             echo "draft PR — skipping"
             exit 0
           fi
