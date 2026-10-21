@@ -60,6 +60,26 @@ check "http + remapped port" "$got" "http://127.0.0.1:9000/?token=${NEW}"
 got=$( . "$LAUNCHER"; HOST_PORT=8443; TLS=true; synth_url "$NEW" )
 check "https scheme under --tls" "$got" "https://127.0.0.1:8443/?token=${NEW}"
 
+# ── option parsing (sourced, cmd_up stubbed: no docker needed) ──────────────
+# A value-taking option must refuse a following flag or an empty value, and
+# name the option in the error. cmd_up is stubbed so a wrongly accepted
+# argument list shows up as "REACHED" instead of touching docker.
+echo "option values:"
+parse() { ( . "$LAUNCHER"; cmd_up() { echo "REACHED image=$IMAGE port=$HOST_PORT base=${REPO_BASE_URL:-}"; }; main "$@" ) 2>&1; }
+for opt in --image --port --repo-base-url; do
+  out=$(parse up "$opt" --tls) && rc=0 || rc=$?
+  check "$opt followed by a flag exits nonzero" "$rc" "1"
+  case "$out" in *"$opt needs a value"*) ok "$opt followed by a flag names the option" ;; *) bad "$opt followed by a flag names the option (got '$out')" ;; esac
+  case "$out" in *REACHED*) bad "$opt followed by a flag must not reach cmd_up" ;; *) ok "$opt followed by a flag does not reach cmd_up" ;; esac
+  out=$(parse up "$opt" "") && rc=0 || rc=$?
+  check "$opt with an empty value exits nonzero" "$rc" "1"
+  case "$out" in *"$opt needs a value"*) ok "$opt with an empty value names the option" ;; *) bad "$opt with an empty value names the option (got '$out')" ;; esac
+done
+out=$(parse up --image --port 8080) && rc=0 || rc=$?
+case "$out" in *"--image needs a value"*) ok "--image --port 8080 blames --image" ;; *) bad "--image --port 8080 blames --image (got '$out')" ;; esac
+out=$(parse up --image example/img:1 --port 8080 --repo-base-url http://x.example/) && rc=0 || rc=$?
+check "valid values still parse" "$out" "REACHED image=example/img:1 port=8080 base=http://x.example/"
+
 # ── fake-docker integration ─────────────────────────────────────────────────
 # An env-driven fake `docker`/`curl` on PATH. Behaviour is controlled per-case
 # via FAKE_* env vars so we can exercise ownership/safety without a real daemon:
