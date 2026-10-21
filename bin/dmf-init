@@ -384,6 +384,14 @@ cmd_down() {
 }
 
 # ── arg parsing + dispatch ──────────────────────────────────────────────────
+# Value-taking options refuse an empty value or one that looks like another
+# flag, so `--repo-base-url --tls` fails instead of taking "--tls" as the URL.
+need_value() {
+  case "${2-}" in
+    ""|--*) die "$1 needs a value." ;;
+  esac
+}
+
 main() {
   local cmd="${1:-}"; [ $# -gt 0 ] && shift || true
   case "$cmd" in
@@ -391,10 +399,10 @@ main() {
   esac
   while [ $# -gt 0 ]; do
     case "$1" in
-      --image)         [ "$cmd" = up ] || die "--image only applies to 'dmf-init up'."; IMAGE="${2:?--image needs a value}"; shift 2 ;;
-      --port)          [ "$cmd" = up ] || die "--port only applies to 'dmf-init up'."; HOST_PORT="${2:?--port needs a value}"; shift 2 ;;
+      --image)         [ "$cmd" = up ] || die "--image only applies to 'dmf-init up'."; need_value --image "${2-}"; IMAGE="$2"; shift 2 ;;
+      --port)          [ "$cmd" = up ] || die "--port only applies to 'dmf-init up'."; need_value --port "${2-}"; HOST_PORT="$2"; shift 2 ;;
       --tls)           [ "$cmd" = up ] || die "--tls only applies to 'dmf-init up'."; TLS=true; shift ;;
-      --repo-base-url) [ "$cmd" = up ] || die "--repo-base-url only applies to 'dmf-init up'."; REPO_BASE_URL="${2:?--repo-base-url needs a value}"; shift 2 ;;
+      --repo-base-url) [ "$cmd" = up ] || die "--repo-base-url only applies to 'dmf-init up'."; need_value --repo-base-url "${2-}"; REPO_BASE_URL="$2"; shift 2 ;;
       --dev-no-tmpfs)  [ "$cmd" = up ] || die "--dev-no-tmpfs only applies to 'dmf-init up'."; DEV_NO_TMPFS=true; shift ;;
       -h|--help)       usage; exit 0 ;;
       *)               die "unknown option '$1' (see 'dmf-init --help')." ;;
