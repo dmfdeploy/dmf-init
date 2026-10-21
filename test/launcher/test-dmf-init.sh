@@ -122,6 +122,16 @@ cat >"$SHIM/curl" <<'SH'
 #!/usr/bin/env bash
 exit 0   # healthz always healthy
 SH
+# Browser openers: no-op stubs that record their argument, so no run can launch
+# a real browser. xdg-open is backgrounded by the launcher, so allow it a moment.
+OPEN_LOG="$SHIM/open-log"
+for opener in open xdg-open; do
+  cat >"$SHIM/$opener" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >>"$OPEN_LOG"
+SH
+  chmod +x "$SHIM/$opener"
+done
 chmod +x "$SHIM/docker" "$SHIM/curl"
 export PATH="$SHIM:$PATH"
 
@@ -132,6 +142,11 @@ case "$out" in
   *"http://127.0.0.1:9000/?token=${NEW}"*) ok "opens synthesised URL on the mapped host port" ;;
   *) bad "mapped-port URL (got: $(printf '%s' "$out" | tr '\n' '|'))" ;;
 esac
+sleep 0.2
+check "browser open step called the stub with the synthesised URL" \
+  "$(cat "$OPEN_LOG" 2>/dev/null | head -n1)" "http://127.0.0.1:9000/?token=${NEW}"
+check "open resolves to the shim, not a real browser opener" "$(command -v open)" "$SHIM/open"
+check "xdg-open resolves to the shim" "$(command -v xdg-open)" "$SHIM/xdg-open"
 case "$(cat "$RUN_ARGS")" in
   *"-p 127.0.0.1:9000:8000"*) ok "publishes loopback-only on the mapped port" ;;
   *) bad "loopback publish mapping" ;;
