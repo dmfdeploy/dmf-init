@@ -162,7 +162,7 @@ docker logs --tail 3 <container>       # copy the fresh open http://localhost:80
 ```
 
 Canonical spec:
-[`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/main/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
+[`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/45eb326e973b10e0b52deef290981ceac9bcf5bd/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
 
 ### Target node
 
