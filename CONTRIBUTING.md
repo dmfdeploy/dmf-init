@@ -10,7 +10,7 @@ and is never a contribution path.)
 
 ## Quick start
 
-1. Read the platform overview in the **dmf-platform** umbrella repo
+1. Read the platform overview in the [dmfdeploy/dmfdeploy](https://github.com/dmfdeploy/dmfdeploy) umbrella repo
    (`docs/architecture/DMF Platform Plan.md`) and apply any relevant ADRs from
    `docs/decisions/INDEX.md`.
 2. Fork or branch, make your change on a topic branch, open a PR against `main`.
@@ -87,5 +87,6 @@ See [`SECURITY.md`](SECURITY.md). **Do not** open a public issue for a vulnerabi
 ## License & spec
 
 Contributions are licensed under [Apache 2.0](LICENSE). The canonical governance
-model is **ADR-0041 — DMF Release and Contribution Model** in the dmf-platform
+model is **ADR-0041 — DMF Release and Contribution Model** in the
+[dmfdeploy/dmfdeploy](https://github.com/dmfdeploy/dmfdeploy)
 umbrella repo (`docs/decisions/`).
