@@ -71,6 +71,11 @@ for opt in --image --port --repo-base-url; do
   check "$opt followed by a flag exits nonzero" "$rc" "1"
   case "$out" in *"$opt needs a value"*) ok "$opt followed by a flag names the option" ;; *) bad "$opt followed by a flag names the option (got '$out')" ;; esac
   case "$out" in *REACHED*) bad "$opt followed by a flag must not reach cmd_up" ;; *) ok "$opt followed by a flag does not reach cmd_up" ;; esac
+  # A short flag is also option-looking: -h must not be taken as a value.
+  out=$(parse up "$opt" -h) && rc=0 || rc=$?
+  check "$opt followed by -h exits nonzero" "$rc" "1"
+  case "$out" in *"$opt needs a value"*) ok "$opt followed by -h names the option" ;; *) bad "$opt followed by -h names the option (got '$out')" ;; esac
+  case "$out" in *REACHED*) bad "$opt followed by -h must not reach cmd_up" ;; *) ok "$opt followed by -h does not reach cmd_up" ;; esac
   out=$(parse up "$opt" "") && rc=0 || rc=$?
   check "$opt with an empty value exits nonzero" "$rc" "1"
   case "$out" in *"$opt needs a value"*) ok "$opt with an empty value names the option" ;; *) bad "$opt with an empty value names the option (got '$out')" ;; esac

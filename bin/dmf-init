@@ -384,11 +384,12 @@ cmd_down() {
 }
 
 # ── arg parsing + dispatch ──────────────────────────────────────────────────
-# Value-taking options refuse an empty value or one that looks like another
-# flag, so `--repo-base-url --tls` fails instead of taking "--tls" as the URL.
+# Value-taking options refuse an empty value or any value that starts with "-",
+# so `--repo-base-url --tls` and `--image -h` fail instead of taking the flag
+# as the value.
 need_value() {
   case "${2-}" in
-    ""|--*) die "$1 needs a value." ;;
+    ""|-*) die "$1 needs a value." ;;
   esac
 }
 
