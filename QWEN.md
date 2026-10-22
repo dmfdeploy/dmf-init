@@ -21,5 +21,6 @@ in the umbrella repo. The three rules that matter mid-task:
    included. Manual close is a fallback.
 3. **Never invent a local backlog** (TODO files, ad-hoc trackers). Issues =
    liveness; plan frontmatter = design state; ADRs = decisions (RFC in
-   Discussions first); STATUS.md = committed notes; STATUS.local.md = live repo snapshot.
+   Discussions first); STATUS.md = pointer file (operator notes live in pinned issue dmfdeploy/dmfdeploy#618);
+   STATUS.local.md = live repo snapshot.
 <!-- WORKING-MODEL-BLOCK-END -->
