@@ -205,5 +205,5 @@ These fields are intentionally blank by default; fill them for *your* node.
 
 ## License
 
-Apache License, Version 2.0. See see [LICENSE](LICENSE).
+Apache License, Version 2.0. See [LICENSE](LICENSE).
 Third-party components are listed in [NOTICE](NOTICE).
