@@ -173,11 +173,11 @@ Canonical spec:
 
 The installer provisions a **node you bring**: an SSH-reachable **Debian, ARM64**
 host (a cloud VM, a spare box, a Raspberry Pi). The installer does not check the
-Debian version itself. The requirement comes from
-[`dmf-infra`](https://github.com/dmfdeploy/dmf-infra), whose README documents
-**Debian 12 (Bookworm)**. Its baseline playbook also contains handling for
-Debian 13 (Trixie), but 12 is the documented target. Other distros and
-architectures are untested for now. Your own workstation OS doesn't matter; the
+Debian version itself. v0.1 is tested on **Debian 13 (Trixie)**, as
+[`dmf-infra`](https://github.com/dmfdeploy/dmf-infra) documents. Its baseline
+playbook also handles Debian 12 (Bookworm). Other distros and architectures are
+untested for now. The node needs 4 vCPU, 16 GB RAM, and 60 GB disk at minimum.
+The full stack uses about 7 GB RAM and 30 GB disk at idle. Your own workstation OS doesn't matter; the
 installer runs in a browser. On the wizard's *Target node* step you supply:
 
 - **Node IP**: an address reachable *from this installer container*. Do not use

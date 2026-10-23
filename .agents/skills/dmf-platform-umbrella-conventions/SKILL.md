@@ -1,15 +1,15 @@
 ---
 name: dmf-platform-umbrella-conventions
-description: DMF Platform umbrella workspace conventions, boot ritual, and cross-repo state rules
+description: dmfdeploy platform umbrella workspace conventions, boot ritual, and cross-repo state rules
 source: auto-skill
 extracted_at: '2026-06-10T13:00:00.000Z'
 ---
 
-# DMF Platform Umbrella Conventions
+# dmfdeploy platform Umbrella Conventions
 
 ## Context
 
-This repo (`dmf-init`) is a component of the **DMF Platform**, an umbrella workspace with multiple component repos checked out alongside it. Operators set `$DMFDEPLOY_UMBRELLA` to its local path.
+This repo (`dmf-init`) is a component of the **dmfdeploy platform**, an umbrella workspace with multiple component repos checked out alongside it. Operators set `$DMFDEPLOY_UMBRELLA` to its local path.
 
 ## Before any non-trivial change
 
