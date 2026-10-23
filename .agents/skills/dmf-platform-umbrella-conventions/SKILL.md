@@ -23,7 +23,7 @@ Then read in order:
 1. `dmfdeploy/STATUS.md` — what's happening across all repos right now
 2. `dmfdeploy/QWEN.md` — full boot ritual + skills index + Qwen-specific rules
 3. `dmfdeploy/docs/decisions/INDEX.md` — ADRs applicable to your task
-4. The most recent file under `dmfdeploy/docs/handoffs/`
+4. The comments on your tracking issue (the old [handoff notes](https://github.com/dmfdeploy/dmfdeploy/tree/22f351cd1cf4b16a391a013861015666b065e55c/docs/handoffs) were removed from the umbrella tree)
 
 ## Cross-repo state
 
