@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # .githooks/pre-commit — secret scan via gitleaks.
 #
-# Mirrors the umbrella DMF Platform pre-commit hook for sub-repos.
+# Mirrors the umbrella dmfdeploy platform pre-commit hook for sub-repos.
 # Refuses any commit whose staged changes match a gitleaks rule from
 # the .gitleaks.toml at the repo root.
 #

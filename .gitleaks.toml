@@ -1,4 +1,4 @@
-# DMF Platform — sub-repo gitleaks config
+# dmfdeploy platform — sub-repo gitleaks config
 #
 # Mirrors the public-safe subset of the umbrella's .gitleaks.toml so each
 # public repo's local pre-commit catches the same leak categories:

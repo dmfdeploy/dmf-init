@@ -2,13 +2,13 @@
 
 The Day-0 stateless init/bootstrap container (React + FastAPI) that wraps the dmf-env wizard + toolchain behind a localhost web UI.
 
-This repo is part of the **DMF Platform**. GitHub is the canonical home and the
+This repo is part of the **dmfdeploy platform**. GitHub is the canonical home and the
 single source of truth: all changes land via **Pull Request** against `main`.
 
 ## Quick start
 
 1. Read the platform overview in the [dmfdeploy/dmfdeploy](https://github.com/dmfdeploy/dmfdeploy) umbrella repo
-   (`docs/architecture/DMF Platform Plan.md`) and apply any relevant ADRs from
+   (`docs/architecture/dmfdeploy-platform-plan.md`) and apply any relevant ADRs from
    `docs/decisions/INDEX.md`.
 2. Fork or branch, make your change on a topic branch, open a PR against `main`.
 3. Ensure CI is green and your commits are **signed off** (see DCO below).
