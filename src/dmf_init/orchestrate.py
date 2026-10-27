@@ -24,7 +24,6 @@ class CommandStep:
     cwd: Path | None = None
     env: dict[str, str] | None = None
     setup_request_pause_id: str | None = None
-    setup_request_pause_id: str | None = None
 
 
 @dataclass(frozen=True)
