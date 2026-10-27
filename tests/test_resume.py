@@ -39,8 +39,12 @@ def _real_build_steps() -> list[Step]:
         CommandStep(id="unseal", argv=["ignored"]),
         CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
-        CommandStep(id="configure", argv=["ignored"]),
         PauseStep(id="workstation", title="Prepare your workstation"),
+        PauseStep(id="initial-passkey", title="Establish your first passkey"),
+        PauseStep(id="setup-request", title="Authorize setup inventory"),
+        CommandStep(
+            id="configure", argv=["ignored"], setup_request_pause_id="setup-request"
+        ),
         PauseStep(id="passkey", title="Complete passkey enrollment"),
         CommandStep(id="verify", argv=["ignored"]),
         CheckpointStep(id="checkpoint-3", n=3),
@@ -211,13 +215,19 @@ def test_retry_disk_resume_after_gc(
     assert [s.id for s in spawned[0].steps] == [
         "bao-preflight",
         "post-seed",
-        "configure",
         "workstation",
+        "initial-passkey",
+        "setup-request",
+        "configure",
         "passkey",
         "verify",
         "checkpoint-3",
     ]
     assert spawned[0].env_id == env_id
+    configure = next(step for step in spawned[0].steps if step.id == "configure")
+    assert configure.setup_request_pause_id == "setup-request"
+    assert "DMF_SETUP_REQUEST_ID" not in (configure.env or {})
+    assert all("DMF_SETUP_REQUEST_ID" not in arg for arg in configure.argv)
 
 
 def test_retry_stale_run_id_with_env_id_falls_back_to_disk(
