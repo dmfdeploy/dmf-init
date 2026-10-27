@@ -23,8 +23,8 @@ def _real_build_steps() -> list[Step]:
     """Subset of build_bootstrap_steps matching the real graph order.
 
     Real order: pre-seed, checkpoint-2, checkpoint-2-export-gate, unseal,
-    seed-bao, post-seed, configure, workstation (pause), passkey (pause),
-    verify, checkpoint-3.
+    seed-bao, post-seed, workstation, initial-passkey, setup-request,
+    configure, post-configure passkey, verify, checkpoint-3.
     """
     return [
         CommandStep(id="pre-seed", argv=["ignored"]),
@@ -33,8 +33,10 @@ def _real_build_steps() -> list[Step]:
         CommandStep(id="unseal", argv=["ignored"]),
         CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
-        CommandStep(id="configure", argv=["ignored"]),
         PauseStep(id="workstation", title="Prepare your workstation"),
+        PauseStep(id="initial-passkey", title="Establish your first passkey"),
+        PauseStep(id="setup-request", title="Authorize setup inventory"),
+        CommandStep(id="configure", argv=["ignored"], setup_request_pause_id="setup-request"),
         PauseStep(id="passkey", title="Complete passkey enrollment"),
         CommandStep(id="verify", argv=["ignored"]),
         CheckpointStep(id="checkpoint-3", n=3),
@@ -228,17 +230,55 @@ def test_retry_passes_passphrase_and_slices_from_failed_step(
     assert step_ids == [
         "bao-preflight",
         "post-seed",
-        "configure",
         "workstation",
+        "initial-passkey",
+        "setup-request",
+        "configure",
         "passkey",
         "verify",
         "checkpoint-3",
     ]
     assert retry_run.env_id == env_id
     assert retry_run.passphrase == "correct horse battery staple"
-
     with app.state.bootstrap_lock:
         assert new_run_id in app.state.bootstrap_runs
+
+
+def test_configure_retry_recreates_only_trust_passkey_and_fresh_request_gates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    env_id = "sandbox-alpha"
+    env_dir, _ = _make_env_on_disk(data_root, env_id)
+    (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
+
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    _authenticate(client, app)
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
+    spawned_runs: list[BootstrapRun] = []
+    monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
+
+    run_id = _make_failed_run(app, env_id=env_id, failed_step_id="configure")
+    _seed_current_download(app, env_id)
+    response = client.post(
+        "/api/bootstrap/retry",
+        json={"run_id": run_id, "passphrase": "correct horse battery staple"},
+    )
+
+    assert response.status_code == 200
+    retry_steps = [step.id for step in spawned_runs[0].steps]
+    assert retry_steps == [
+        "bao-preflight",
+        "workstation",
+        "initial-passkey",
+        "setup-request",
+        "configure",
+        "passkey",
+        "verify",
+        "checkpoint-3",
+    ]
 
 
 def test_retry_seeds_openbao_redactions(

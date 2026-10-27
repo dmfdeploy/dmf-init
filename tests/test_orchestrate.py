@@ -6,12 +6,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
+
 from dmf_init.orchestrate import (
     BootstrapRun,
     CheckpointStep,
     CommandStep,
     PauseStep,
     Step,
+    SubprocessExecutor,
     run_worker,
     stream_events,
 )
@@ -211,6 +214,68 @@ def test_resume_before_pause_still_completes() -> None:
     assert not worker.is_alive()
     events = _decode_stream(run)
     assert events[-1]["event"] == "complete"
+
+
+def test_setup_request_is_ephemeral_and_only_added_to_configure_environment() -> None:
+    class CapturingExecutor:
+        def __init__(self):
+            self.steps = []
+
+        def run(self, step):
+            self.steps.append(step)
+            yield "configured", None
+            yield "", 0
+
+    executor = CapturingExecutor()
+    steps: list[Step] = [
+        PauseStep(id="setup-request", title="Authorize setup inventory"),
+        CommandStep(
+            id="configure",
+            argv=["run-playbook.sh", "configure"],
+            env={"KEEP": "value"},
+            setup_request_pause_id="setup-request",
+        ),
+        CommandStep(id="verify", argv=["run-playbook.sh", "verify"]),
+    ]
+    run = BootstrapRun(run_id="run-c5", steps=steps, executor=executor)
+    worker = threading.Thread(target=run_worker, args=(run,))
+    worker.start()
+    _wait_for(lambda: any(event.get("pause_id") == "setup-request" for event in run.events))
+    run.resume("setup-request", {"request_id": "a" * 32})
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert executor.steps[0].id == "configure"
+    assert executor.steps[0].env == {"KEEP": "value", "DMF_SETUP_REQUEST_ID": "a" * 32}
+    assert executor.steps[1].env is None
+    assert run.pause_payloads == {}
+    assert all("a" * 32 not in json.dumps(event) for event in run.events)
+
+
+def test_setup_request_rejects_wrong_payload_shape_without_exposing_value() -> None:
+    run = BootstrapRun(
+        run_id="run-c5-invalid",
+        steps=[PauseStep(id="setup-request", title="Authorize setup inventory")],
+    )
+    with pytest.raises(ValueError):
+        run.resume("setup-request", {"request_id": "a" * 32, "reason": "forged"})
+
+
+def test_subprocess_executor_strips_untrusted_inherited_setup_request(monkeypatch) -> None:
+    captured = {}
+
+    class FakeProcess:
+        stdout = iter(["ready\n"])
+
+        def __init__(self, _argv, **kwargs):
+            captured.update(kwargs)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setenv("DMF_SETUP_REQUEST_ID", "b" * 32)
+    monkeypatch.setattr("dmf_init.orchestrate.subprocess.Popen", FakeProcess)
+    list(SubprocessExecutor().run(CommandStep(id="ordinary", argv=["true"])))
+    assert "DMF_SETUP_REQUEST_ID" not in captured["env"]
 
 
 def test_command_failure_sets_failed_step_id_and_hint() -> None:

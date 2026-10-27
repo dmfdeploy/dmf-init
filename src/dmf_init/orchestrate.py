@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 from .redaction import redact_text
+
+SETUP_REQUEST_PAUSE_ID = "setup-request"
+SETUP_REQUEST_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,8 @@ class CommandStep:
     argv: list[str]
     cwd: Path | None = None
     env: dict[str, str] | None = None
+    setup_request_pause_id: str | None = None
+    setup_request_pause_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,9 @@ class CommandExecutor(Protocol):
 class SubprocessExecutor:
     def run(self, step: CommandStep) -> Iterator[tuple[str, int | None]]:
         env = os.environ.copy()
+        # Never inherit a caller-supplied receipt id. Only the in-memory
+        # pause payload may add this value to the gated configure step.
+        env.pop("DMF_SETUP_REQUEST_ID", None)
         if step.env:
             env.update(step.env)
         proc = subprocess.Popen(
@@ -147,6 +156,14 @@ class BootstrapRun:
             pause_event = self.pauses[pause_id]
             if pause_event.is_set():
                 raise ValueError(f"pause already resumed: {pause_id}")
+            if pause_id == SETUP_REQUEST_PAUSE_ID:
+                if (
+                    not isinstance(payload, dict)
+                    or set(payload) != {"request_id"}
+                    or not isinstance(payload.get("request_id"), str)
+                    or not SETUP_REQUEST_ID_RE.fullmatch(payload["request_id"])
+                ):
+                    raise ValueError("a valid setup request id is required")
             self.pause_payloads[pause_id] = payload or {}
             pause_event.set()
             self.cond.notify_all()
@@ -177,8 +194,19 @@ def run_worker(run: BootstrapRun) -> None:
                 }
             )
             if isinstance(step, CommandStep):
+                command_step = step
+                if step.setup_request_pause_id:
+                    payload = run.pause_payloads.pop(step.setup_request_pause_id, None)
+                    request_id = payload.get("request_id") if payload else None
+                    if not isinstance(request_id, str) or not SETUP_REQUEST_ID_RE.fullmatch(
+                        request_id
+                    ):
+                        raise ValueError("a fresh setup request id is required before configure")
+                    command_env = dict(step.env or {})
+                    command_env["DMF_SETUP_REQUEST_ID"] = request_id
+                    command_step = replace(step, env=command_env)
                 log_tail: list[str] = []
-                for line, code in run.executor.run(step):
+                for line, code in run.executor.run(command_step):
                     if code is None:
                         if line:
                             run.emit({"event": "log", "step": step.id, "line": line})

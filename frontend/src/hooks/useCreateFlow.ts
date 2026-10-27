@@ -22,6 +22,8 @@ type BootstrapCheckpoint = {
 export type ActivePause =
   | { pause_id: 'workstation'; title: string; payload: Record<string, unknown> }
   | { pause_id: 'passkey'; title: string; payload: Record<string, unknown> }
+  | { pause_id: 'initial-passkey'; title: string; payload: Record<string, unknown> }
+  | { pause_id: 'setup-request'; title: string; payload: Record<string, unknown> }
   | { pause_id: 'checkpoint-2-export-gate'; title: string; payload: Record<string, unknown> }
 
 type TerminalState =
@@ -300,7 +302,7 @@ export function useCreateFlow() {
 
   // resumePause
   const resumePause = useCallback(
-    async (runId: string, pauseId: string) => {
+    async (runId: string, pauseId: string, pausePayload?: Record<string, unknown>) => {
       setResumeBusy(true)
       setResumeError(null)
       try {
@@ -308,7 +310,7 @@ export function useCreateFlow() {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ run_id: runId, pause_id: pauseId, payload: null }),
+          body: JSON.stringify({ run_id: runId, pause_id: pauseId, payload: pausePayload ?? null }),
         })
         if (flagIfUnauthorized(response)) return
         // Only clear the pause locally if the server actually resumed. A 409
@@ -327,7 +329,7 @@ export function useCreateFlow() {
 
   // verifyPasskey
   const verifyPasskey = useCallback(
-    async (runId: string) => {
+    async (runId: string, pauseId: 'passkey' | 'initial-passkey' = 'passkey') => {
       setPasskeyChecking(true)
       setResumeError(null)
       try {
@@ -341,7 +343,7 @@ export function useCreateFlow() {
         const statusText = `${payload.confirmed}/${payload.required}`
         setPasskeyStatus(statusText)
         if (payload.confirmed >= payload.required) {
-          await resumePause(runId, 'passkey')
+          await resumePause(runId, pauseId)
           return
         }
         setResumeError(`Passkey enrollment is not complete yet (${statusText}).`)
