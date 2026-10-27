@@ -35,6 +35,7 @@ type ConnectStepProps = {
   passkeyChecking: boolean
   passkeyStatus: string | null
   onResume: () => void
+  onSetupRequestResume: (requestId: string) => void
   onVerifyPasskey: () => void
   envId: string
   runId: string
@@ -49,12 +50,14 @@ export function ConnectStep({
   passkeyChecking,
   passkeyStatus,
   onResume,
+  onSetupRequestResume,
   onVerifyPasskey,
   runId,
   pollPasskey,
   bundleSafe,
 }: ConnectStepProps) {
   const [passkeyCount, setPasskeyCount] = useState<{ confirmed: number; required: number } | null>(null)
+  const [setupRequestId, setSetupRequestId] = useState('')
   const stationRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,7 +67,8 @@ export function ConnectStep({
   }, [activePause?.pause_id])
 
   useEffect(() => {
-    if (activePause?.pause_id !== 'passkey' || !runId) return
+    if (activePause?.pause_id !== 'passkey' && activePause?.pause_id !== 'initial-passkey') return
+    if (!runId) return
     let cancelled = false
     const interval = setInterval(async () => {
       const result = await pollPasskey(runId)
@@ -75,6 +79,10 @@ export function ConnectStep({
     })
     return () => { cancelled = true; clearInterval(interval) }
   }, [activePause?.pause_id, runId, pollPasskey])
+
+  useEffect(() => {
+    setSetupRequestId('')
+  }, [activePause?.pause_id])
 
   function downloadCaCertificate(payload: CaCertPayload) {
     const blob = new Blob([payload.pem], { type: 'application/x-pem-file' })
@@ -165,7 +173,7 @@ export function ConnectStep({
           )}
 
           {/* Passkey station */}
-          {activePause.pause_id === 'passkey' && (
+          {(activePause.pause_id === 'passkey' || activePause.pause_id === 'initial-passkey') && (
             <PasskeyStation
               payload={activePause.payload as PasskeyPayload}
               passkeyCount={passkeyCount}
@@ -173,6 +181,27 @@ export function ConnectStep({
               passkeyStatus={passkeyStatus}
               onVerify={onVerifyPasskey}
             />
+          )}
+
+          {activePause.pause_id === 'setup-request' && (
+            <div className="grid gap-3">
+              <p className="text-sm leading-6 text-muted">
+                {(activePause.payload.message as string) ??
+                  'Create the fixed born-inventory setup request in the DMF Console, then paste its request id here.'}
+              </p>
+              <label className="grid gap-1 text-sm">
+                <span>Setup request id</span>
+                <input
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={32}
+                  value={setupRequestId}
+                  onChange={(event) => setSetupRequestId(event.target.value.trim())}
+                  placeholder="32 lowercase hexadecimal characters"
+                  className="rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm"
+                />
+              </label>
+            </div>
           )}
 
           {/* Export-gate station: block resume until recovery bundle is saved */}
@@ -200,7 +229,7 @@ export function ConnectStep({
 
         {/* Continue button */}
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3">
-          {activePause.pause_id === 'passkey' ? (
+          {activePause.pause_id === 'passkey' || activePause.pause_id === 'initial-passkey' ? (
             <button
               type="button"
               onClick={onVerifyPasskey}
@@ -208,6 +237,15 @@ export function ConnectStep({
               className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {passkeyChecking ? 'Checking…' : resumeBusy ? 'Continuing…' : 'Verify & Continue'}
+            </button>
+          ) : activePause.pause_id === 'setup-request' ? (
+            <button
+              type="button"
+              onClick={() => onSetupRequestResume(setupRequestId)}
+              disabled={resumeBusy || !/^[0-9a-f]{32}$/.test(setupRequestId)}
+              className="rounded-lg border border-accent/30 bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resumeBusy ? 'Validating request…' : 'Continue to configure'}
             </button>
           ) : (
             <button
@@ -220,7 +258,7 @@ export function ConnectStep({
             </button>
           )}
           <span className="text-xs text-muted">
-            {activePause.pause_id === 'passkey'
+            {activePause.pause_id === 'passkey' || activePause.pause_id === 'initial-passkey'
               ? 'The station stays active until the passkey check confirms the required count.'
               : 'The bootstrap will continue once resumed.'}
           </span>

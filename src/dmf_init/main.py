@@ -46,6 +46,8 @@ from .bootstrap_steps import (
     build_ca_cert_payload,
     build_hosts_map_payload,
     build_passkey_payload,
+    build_setup_request_payload,
+    build_workstation_payload,
     ensure_runtime_repos,
     make_checkpoint_fn,
     seed_openbao_redactions,
@@ -76,6 +78,7 @@ from .manage_actions import (
 from .orchestrate import (
     BootstrapRun,
     CheckpointStep,
+    PauseStep,
     SubprocessExecutor,
     run_worker,
     stream_events,
@@ -916,6 +919,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail=f"failed step '{failed_step_id}' not in build",
                 ) from None
             steps = all_steps[idx:]
+            # A configure retry starts after its original first-passkey and
+            # one-use receipt gates. Recreate only those gates, then rerun the
+            # failed configure command; do not replay post-seed provisioning.
+            configure_index = next(
+                (i for i, step in enumerate(steps) if getattr(step, "id", None) == "configure"),
+                None,
+            )
+            if configure_index is not None and not any(
+                isinstance(step, PauseStep)
+                and step.id == "setup-request"
+                for step in steps[:configure_index]
+            ):
+                steps[configure_index:configure_index] = [
+                    PauseStep(
+                        id="workstation",
+                        title="Prepare your workstation",
+                        payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
+                    ),
+                    PauseStep(
+                        id="initial-passkey",
+                        title="Establish your first passkey",
+                        payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
+                    ),
+                    PauseStep(
+                        id="setup-request",
+                        title="Authorize setup inventory",
+                        payload_fn=lambda run, ctx=ctx: build_setup_request_payload(ctx),
+                    ),
+                ]
 
             # ADR-0044 forced export gate also applies to retry/resume-from-cursor:
             # if we'd resume *past* the gate (the gate step isn't in this slice),

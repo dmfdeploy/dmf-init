@@ -350,8 +350,20 @@ def _run_passkey_helper(ctx: BootstrapContext) -> subprocess.CompletedProcess[st
     )
 
 
-def _command_step(ctx: BootstrapContext, step_id: str, argv: list[str]) -> CommandStep:
-    return CommandStep(id=step_id, argv=argv, cwd=ctx.repos_root / "dmf-env", env=ctx.command_env())
+def _command_step(
+    ctx: BootstrapContext,
+    step_id: str,
+    argv: list[str],
+    *,
+    setup_request_pause_id: str | None = None,
+) -> CommandStep:
+    return CommandStep(
+        id=step_id,
+        argv=argv,
+        cwd=ctx.repos_root / "dmf-env",
+        env=ctx.command_env(),
+        setup_request_pause_id=setup_request_pause_id,
+    )
 
 
 # Only this profile is auto-unsealable: it uses a 1-of-1 Shamir key held in the
@@ -671,15 +683,26 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             "post-seed",
             ctx.run_playbook_argv("bootstrap-sandbox-provision-post-seed.yml"),
         ),
-        _command_step(
-            ctx,
-            "configure",
-            ctx.run_playbook_argv("bootstrap-sandbox-configure.yml"),
-        ),
         PauseStep(
             id="workstation",
             title="Prepare your workstation",
             payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
+        ),
+        PauseStep(
+            id="initial-passkey",
+            title="Establish your first passkey",
+            payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
+        ),
+        PauseStep(
+            id="setup-request",
+            title="Authorize setup inventory",
+            payload_fn=lambda run, ctx=ctx: build_setup_request_payload(ctx),
+        ),
+        _command_step(
+            ctx,
+            "configure",
+            ctx.run_playbook_argv("bootstrap-sandbox-configure.yml"),
+            setup_request_pause_id="setup-request",
         ),
         PauseStep(
             id="passkey",
@@ -693,6 +716,18 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
         ),
         CheckpointStep(id="checkpoint-3", n=3),
     ]
+
+
+def build_setup_request_payload(ctx: BootstrapContext) -> dict[str, Any]:
+    return {
+        "action": "born-inventory-secretid-issue",
+        "message": (
+            "In the DMF Console, create a born-inventory setup request with a "
+            "non-secret reason. Paste its request id below. The request expires "
+            "after 15 minutes and is consumed once; after a failed configure or "
+            "interruption, create a fresh request."
+        ),
+    }
 
 
 class CheckpointError(RuntimeError):

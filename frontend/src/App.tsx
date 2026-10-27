@@ -207,13 +207,20 @@ export default function App() {
 
   const handleResumePause = useCallback(async () => {
     if (!activePause || !createState.runId) return
+    if (activePause.pause_id === 'setup-request') return
     await resumePause(createState.runId, activePause.pause_id)
   }, [activePause, createState.runId, resumePause])
 
+  const handleSetupRequestResume = useCallback(async (requestId: string) => {
+    if (!createState.runId) return
+    await resumePause(createState.runId, 'setup-request', { request_id: requestId })
+  }, [createState.runId, resumePause])
+
   const handleVerifyPasskey = useCallback(async () => {
     if (!createState.runId) return
-    await verifyPasskey(createState.runId)
-  }, [createState.runId, verifyPasskey])
+    if (activePause?.pause_id !== 'passkey' && activePause?.pause_id !== 'initial-passkey') return
+    await verifyPasskey(createState.runId, activePause.pause_id)
+  }, [activePause, createState.runId, verifyPasskey])
 
   // Auto-start bootstrap exactly ONCE per deploy. The ref latch is essential:
   // guarding on !runId alone re-fired the effect after every reducer reset and
@@ -313,6 +320,7 @@ export default function App() {
             passkeyChecking={createFlow.passkeyChecking}
             passkeyStatus={createFlow.passkeyStatus}
             onResume={handleResumePause}
+            onSetupRequestResume={handleSetupRequestResume}
             onVerifyPasskey={handleVerifyPasskey}
             envId={renderedEnvId ?? ''}
             runId={createState.runId ?? ''}
@@ -343,7 +351,7 @@ export default function App() {
   }
 
   // Sidebar sub-items for the active rail phase.
-  const PAUSE_IDS = ['workstation', 'passkey']
+  const PAUSE_IDS = ['workstation', 'passkey', 'initial-passkey', 'setup-request']
   const wizardPages = ['Identity', 'Target node', 'Security', 'Review & Deploy']
   const subItems: Record<string, RailSubItem[]> = {
     configure: wizardPages.map((label, i) => ({

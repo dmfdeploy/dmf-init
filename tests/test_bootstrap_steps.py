@@ -38,8 +38,10 @@ from dmf_init.repos import RepoFetchRequest, fetch_runtime_repos
 class FakeExecutor:
     scripts: dict[str, tuple[list[str], int]]
     gates: dict[str, threading.Event] = field(default_factory=dict)
+    seen_steps: list[CommandStep] = field(default_factory=list)
 
     def run(self, step: CommandStep):
+        self.seen_steps.append(step)
         lines, exit_code = self.scripts[step.id]
         for line in lines:
             yield line, None
@@ -362,8 +364,10 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
         "unseal",
         "seed-bao",
         "post-seed",
-        "configure",
         "workstation",
+        "initial-passkey",
+        "setup-request",
+        "configure",
         "passkey",
         "verify",
         "checkpoint-3",
@@ -465,7 +469,10 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     _wait_for(
         lambda: any(ev["event"] == "pause" and ev["pause_id"] == "workstation" for ev in run.events)
     )
-    assert not any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
+    assert not any(
+        ev["event"] == "pause" and ev["pause_id"] == "initial-passkey"
+        for ev in run.events
+    )
     log_lines = [event["line"] for event in run.events if event["event"] == "log"]
     assert log_lines
     assert all("UNSEAL-SENTINEL" not in line for line in log_lines)
@@ -473,6 +480,32 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert any("[REDACTED]" in line for line in log_lines)
 
     run.resume("workstation")
+    _wait_for(
+        lambda: any(
+            ev["event"] == "pause" and ev["pause_id"] == "initial-passkey"
+            for ev in run.events
+        )
+    )
+    run.resume("initial-passkey")
+    _wait_for(
+        lambda: any(
+            ev["event"] == "pause" and ev["pause_id"] == "setup-request"
+            for ev in run.events
+        )
+    )
+    run.resume("setup-request", {"request_id": "c" * 32})
+    _wait_for(
+        lambda: any(
+            ev["event"] == "step_complete"
+            and ev["step"] == "configure"
+            and ev["status"] == "ok"
+            for ev in run.events
+        )
+    )
+    configure = next(step for step in executor.seen_steps if step.id == "configure")
+    assert configure.env is not None
+    assert configure.env["DMF_SETUP_REQUEST_ID"] == "c" * 32
+    assert all("c" * 32 not in json.dumps(event) for event in run.events)
     _wait_for(
         lambda: any(ev["event"] == "pause" and ev["pause_id"] == "passkey" for ev in run.events)
     )
@@ -482,7 +515,13 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert not worker.is_alive()
     assert checkpoint_calls == [2, 3]
     pause_ids = [event["pause_id"] for event in run.events if event["event"] == "pause"]
-    assert pause_ids == ["checkpoint-2-export-gate", "workstation", "passkey"]
+    assert pause_ids == [
+        "checkpoint-2-export-gate",
+        "workstation",
+        "initial-passkey",
+        "setup-request",
+        "passkey",
+    ]
     assert run.events[-1]["event"] == "complete"
     assert run.events[-1]["checkpoints"] == [2, 3]
 
