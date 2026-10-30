@@ -328,3 +328,46 @@ def test_hint_empty_when_no_log_lines_before_failure() -> None:
     events = _decode_stream(run)
     error_event = next(ev for ev in events if ev["event"] == "error")
     assert error_event["hint"] == ""
+
+
+def _setup_request_run(executor: Any) -> BootstrapRun:
+    steps: list[Step] = [
+        PauseStep(id="setup-request", title="Authorize setup inventory"),
+        CommandStep(
+            id="configure",
+            argv=["run-playbook.sh", "configure"],
+            setup_request_pause_id="setup-request",
+        ),
+    ]
+    return BootstrapRun(run_id="run-redact", steps=steps, executor=executor)
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_setup_request_id_is_redacted_from_configure_output(exit_code: int) -> None:
+    """A task that echoes the one-use request id must not leak it into events,
+    whether configure succeeds or fails (failure output is kept in the hint)."""
+    request_id = "b" * 32
+
+    class EchoingExecutor:
+        def run(self, step):
+            echoed = step.env["DMF_SETUP_REQUEST_ID"]
+            yield f"request id is {echoed}", None
+            yield f"stderr: bad id {echoed}", None
+            yield "", exit_code
+
+    run = _setup_request_run(EchoingExecutor())
+    worker = threading.Thread(target=run_worker, args=(run,))
+    worker.start()
+    _wait_for(lambda: any(event.get("pause_id") == "setup-request" for event in run.events))
+    run.resume("setup-request", {"request_id": request_id})
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+
+    assert run.terminal
+    assert any(event["event"] == "log" for event in run.events)
+    assert all(request_id not in json.dumps(event) for event in run.events)
+    if exit_code:
+        error = run.events[-1]
+        assert error["event"] == "error"
+        assert error["hint"]
+        assert request_id not in error["hint"]

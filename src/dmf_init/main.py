@@ -40,6 +40,7 @@ from .backup import (
 from .bootstrap_steps import (
     BAO_PREFLIGHT_ID,
     CHECKPOINT_EXPORT_GATE_ID,
+    INITIAL_PASSKEY_GATE_ID,
     BootstrapContext,
     build_bao_preflight_step,
     build_bootstrap_steps,
@@ -76,6 +77,7 @@ from .manage_actions import (
     build_action_run,
 )
 from .orchestrate import (
+    SETUP_REQUEST_PAUSE_ID,
     BootstrapRun,
     CheckpointStep,
     PauseStep,
@@ -532,6 +534,10 @@ def _manage_action_wrapper(
             session.wipe_secrets()
 
 
+# Pauses that resume only while the worker waits on them.
+SERVER_GATED_PAUSE_IDS = frozenset({INITIAL_PASSKEY_GATE_ID, SETUP_REQUEST_PAUSE_ID})
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     settings.data_root.mkdir(parents=True, exist_ok=True)
@@ -938,7 +944,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
                     ),
                     PauseStep(
-                        id="initial-passkey",
+                        id=INITIAL_PASSKEY_GATE_ID,
                         title="Establish your first passkey",
                         payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
                     ),
@@ -1111,6 +1117,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "lost during the long unattended phases)"
                 ),
             )
+        # The first passkey and the setup request are checked here, not only in
+        # the browser: a direct call must not run configure early or without the
+        # first passkey. Both pauses resume only while the worker waits on them.
+        if payload.pause_id in SERVER_GATED_PAUSE_IDS:
+            if payload.pause_id in run.pauses and not run.is_waiting_on(payload.pause_id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"the run is not waiting on '{payload.pause_id}' yet",
+                )
+        if payload.pause_id == INITIAL_PASSKEY_GATE_ID:
+            if not run.env_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="run env_id unavailable"
+                )
+            ctx = BootstrapContext.from_data_root(settings.data_root, run.env_id, run.remotes)
+            status_payload = build_passkey_payload(ctx)
+            confirmed = int(status_payload.get("confirmed", 0) or 0)
+            required = int(status_payload.get("required", 0) or 0)
+            if status_payload.get("note") or required <= 0 or confirmed < required:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "your first passkey is not confirmed yet — enroll it, "
+                        "then continue"
+                    ),
+                )
         try:
             run.resume(payload.pause_id, payload.payload)
         except (KeyError, ValueError) as exc:

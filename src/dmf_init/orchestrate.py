@@ -91,6 +91,10 @@ class BootstrapRun:
     secrets: set[str] = field(default_factory=set)
     pauses: dict[str, threading.Event] = field(init=False)
     pause_payloads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The pause the worker is blocked on right now, set before the pause event
+    # is emitted. Lets the server refuse to resume a pause the run has not
+    # reached yet.
+    waiting_pause: str | None = None
     terminal: bool = False
     final_status: str | None = None
     passphrase: str | None = None
@@ -148,6 +152,10 @@ class BootstrapRun:
             self.passphrase = None
             self.secrets.clear()
 
+    def is_waiting_on(self, pause_id: str) -> bool:
+        with self.cond:
+            return self.waiting_pause == pause_id and not self.pauses[pause_id].is_set()
+
     def resume(self, pause_id: str, payload: dict[str, Any] | None = None) -> None:
         with self.cond:
             if pause_id not in self.pauses:
@@ -201,6 +209,9 @@ def run_worker(run: BootstrapRun) -> None:
                         request_id
                     ):
                         raise ValueError("a fresh setup request id is required before configure")
+                    # The task can echo its environment, and configure output is
+                    # streamed and kept in error hints, so redact the id first.
+                    run.add_secret(request_id)
                     command_env = dict(step.env or {})
                     command_env["DMF_SETUP_REQUEST_ID"] = request_id
                     command_step = replace(step, env=command_env)
@@ -235,6 +246,8 @@ def run_worker(run: BootstrapRun) -> None:
                 run.emit({"event": "step_complete", "step": step.id, "status": "ok"})
             else:
                 payload = step.payload_fn(run) if step.payload_fn else {}
+                with run.cond:
+                    run.waiting_pause = step.id
                 run.emit(
                     {
                         "event": "pause",
@@ -244,6 +257,8 @@ def run_worker(run: BootstrapRun) -> None:
                     }
                 )
                 run.pauses[step.id].wait()
+                with run.cond:
+                    run.waiting_pause = None
                 run.emit({"event": "resume", "pause_id": step.id})
                 run.emit({"event": "step_complete", "step": step.id, "status": "ok"})
         checkpoints = [step.n for step in run.steps if isinstance(step, CheckpointStep)]

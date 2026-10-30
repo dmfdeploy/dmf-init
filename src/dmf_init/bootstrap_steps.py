@@ -630,6 +630,10 @@ def build_passkey_payload(ctx: BootstrapContext) -> dict[str, Any]:
 # on a *proven, current* download (enforced server-side in /api/bootstrap/resume).
 CHECKPOINT_EXPORT_GATE_ID = "checkpoint-2-export-gate"
 
+# The first passkey must exist before configure runs. The resume route checks
+# the live passkey count itself rather than trusting the browser.
+INITIAL_PASSKEY_GATE_ID = "initial-passkey"
+
 
 def build_checkpoint_export_gate_payload(ctx: BootstrapContext) -> dict[str, Any]:
     return {
@@ -689,7 +693,7 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
         ),
         PauseStep(
-            id="initial-passkey",
+            id=INITIAL_PASSKEY_GATE_ID,
             title="Establish your first passkey",
             payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
         ),
