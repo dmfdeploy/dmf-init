@@ -21,9 +21,25 @@ from .backup import (
 from .bootstrap_steps import _iter_secret_strings
 from .orchestrate import BootstrapRun, CommandExecutor, CommandStep, SubprocessExecutor
 from .repos import RepoProvenance
-from .yaml_utils import rewrite_yaml_scalar
+from .yaml_utils import (
+    YamlPathError,
+    read_yaml_scalar,
+    relocate_yaml_paths,
+    rewrite_yaml_scalar,
+)
 
 logger = logging.getLogger("dmf_init.manage")
+
+_SSH_KEY_KEY = "ansible_ssh_private_key_file"
+# The sandbox writer (createnew.py:176) names the key sandbox-node.key; the
+# cloud-lane wizard (dmf-env bin/init-wizard.sh:1470) names it operator.key.
+_SSH_KEY_SUFFIXES = ("/ssh/sandbox-node.key", "/ssh/operator.key")
+_ENV_PATH_KEYS = (
+    _SSH_KEY_KEY,
+    "openbao_key_path",
+    "eso_openbao_breakglass_file",
+    "awx_control_node_ssh_privkey_path",
+)
 
 
 class ManageError(RuntimeError):
@@ -242,6 +258,34 @@ def _write_manage_render_json(
     render_json.chmod(0o600)
 
 
+def _relocate_restored_env_paths(group_vars_main: Path, env_dir: Path) -> None:
+    """Move the env paths in a restored group_vars file under ``env_dir``.
+
+    The package holds the build-time env root in these values and records it
+    nowhere else. The root is the part of the build-time SSH key path before
+    the key's fixed location inside the env, which differs by lane. When the
+    root cannot be read, or a path line is in a form the line editor cannot
+    rewrite exactly, the restore fails and nothing is changed.
+    """
+    if not group_vars_main.is_file():
+        return
+    try:
+        old_ssh_key_path = read_yaml_scalar(group_vars_main, _SSH_KEY_KEY)
+        suffix = next(
+            (item for item in _SSH_KEY_SUFFIXES if (old_ssh_key_path or "").endswith(item)), None
+        )
+        if suffix is None:
+            raise ManageError(
+                f"restore cannot find the build-time env root: {_SSH_KEY_KEY} is "
+                f"{old_ssh_key_path!r}, expected a path ending in one of {_SSH_KEY_SUFFIXES}"
+            )
+        relocate_yaml_paths(
+            group_vars_main, _ENV_PATH_KEYS, old_ssh_key_path[: -len(suffix)], str(env_dir)
+        )
+    except YamlPathError as exc:
+        raise ManageError(f"restore cannot rewrite env paths: {exc}") from exc
+
+
 def run_manage_restore(
     data_root: Path, request: ManageRestoreRequest, *, enforce_tmpfs: bool = False
 ) -> tuple[ManageSession, ManageRestoreResult]:
@@ -264,6 +308,11 @@ def run_manage_restore(
         validate_env_id(env_id)
         env_dir, age_key_path, answers_file_path = _canonical_manage_paths(data_root, env_id)
         render_dir = data_root / "runs" / env_id
+        # Checked on the restored copy, before any existing env state changes.
+        _relocate_restored_env_paths(
+            Path(restore_result.env_dir) / "inventory" / "group_vars" / "all" / "main.yml",
+            env_dir,
+        )
 
         if env_dir.exists():
             shutil.rmtree(env_dir)
@@ -279,11 +328,6 @@ def run_manage_restore(
         shutil.copy2(Path(restore_result.answers_file_path), answers_file_path)
         answers_file_path.chmod(0o600)
         env_ssh_key_path = env_dir / "ssh" / "sandbox-node.key"
-        rewrite_yaml_scalar(
-            env_dir / "inventory" / "group_vars" / "all" / "main.yml",
-            "ansible_ssh_private_key_file",
-            str(env_ssh_key_path),
-        )
         rewrite_yaml_scalar(
             answers_file_path,
             "ssh_private_key_path",
