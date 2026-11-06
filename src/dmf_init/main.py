@@ -47,8 +47,7 @@ from .bootstrap_steps import (
     build_ca_cert_payload,
     build_hosts_map_payload,
     build_passkey_payload,
-    build_setup_request_payload,
-    build_workstation_payload,
+    build_setup_request_gate_steps,
     ensure_runtime_repos,
     make_checkpoint_fn,
     seed_openbao_redactions,
@@ -818,7 +817,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             run_id = secrets.token_urlsafe(8)
             run = BootstrapRun(
                 run_id=run_id,
-                steps=build_bootstrap_steps(ctx),
+                steps=build_bootstrap_steps(
+                    ctx, setup_request_gate=settings.setup_request_gate
+                ),
                 env_id=payload.env_id,
                 passphrase=payload.passphrase,
                 remotes=[],
@@ -914,7 +915,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=status.HTTP_404_NOT_FOUND, detail=str(exc),
                 ) from exc
 
-            all_steps = build_bootstrap_steps(ctx)
+            all_steps = build_bootstrap_steps(
+                ctx, setup_request_gate=settings.setup_request_gate
+            )
             try:
                 idx = next(
                     i for i, s in enumerate(all_steps) if s.id == failed_step_id
@@ -932,28 +935,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (i for i, step in enumerate(steps) if getattr(step, "id", None) == "configure"),
                 None,
             )
-            if configure_index is not None and not any(
-                isinstance(step, PauseStep)
-                and step.id == "setup-request"
-                for step in steps[:configure_index]
+            if (
+                settings.setup_request_gate
+                and configure_index is not None
+                and not any(
+                    isinstance(step, PauseStep) and step.id == "setup-request"
+                    for step in steps[:configure_index]
+                )
             ):
-                steps[configure_index:configure_index] = [
-                    PauseStep(
-                        id="workstation",
-                        title="Prepare your workstation",
-                        payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
-                    ),
-                    PauseStep(
-                        id=INITIAL_PASSKEY_GATE_ID,
-                        title="Establish your first passkey",
-                        payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
-                    ),
-                    PauseStep(
-                        id="setup-request",
-                        title="Authorize setup inventory",
-                        payload_fn=lambda run, ctx=ctx: build_setup_request_payload(ctx),
-                    ),
-                ]
+                steps[configure_index:configure_index] = build_setup_request_gate_steps(ctx)
 
             # ADR-0044 forced export gate also applies to retry/resume-from-cursor:
             # if we'd resume *past* the gate (the gate step isn't in this slice),
@@ -1126,7 +1116,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"the run is not waiting on '{payload.pause_id}' yet",
                 )
-        if payload.pause_id == INITIAL_PASSKEY_GATE_ID:
+        # With the gate off the run has no such pause; resume then rejects it.
+        if payload.pause_id == INITIAL_PASSKEY_GATE_ID and payload.pause_id in run.pauses:
             if not run.env_id:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="run env_id unavailable"

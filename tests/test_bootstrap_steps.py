@@ -356,7 +356,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     monkeypatch.setattr(bootstrap_steps, "_run_openbao_ssh", fake_run_openbao_ssh)
     monkeypatch.setattr(bootstrap_steps, "_run_passkey_helper", fake_run_passkey_helper)
 
-    steps = build_bootstrap_steps(ctx)
+    steps = build_bootstrap_steps(ctx, setup_request_gate=True)
     assert [step.id for step in steps] == [
         "pre-seed",
         "checkpoint-2",

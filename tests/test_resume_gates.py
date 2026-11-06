@@ -58,8 +58,10 @@ def _make_env_on_disk(data_root: Path) -> Path:
     return env_dir
 
 
-def _client(tmp_path: Path) -> tuple[TestClient, FastAPI]:
-    app = create_app(Settings(data_root=tmp_path / "data", tls_enabled=False))
+def _client(tmp_path: Path, *, gate: bool = True) -> tuple[TestClient, FastAPI]:
+    app = create_app(
+        Settings(data_root=tmp_path / "data", tls_enabled=False, setup_request_gate=gate)
+    )
     _make_env_on_disk(app.state.settings.data_root)
     client = TestClient(app)
     token = app.state.launch_token_state.token
@@ -200,7 +202,7 @@ def test_retry_recreated_gates_enforce_the_same_checks(
     ]
     # Retry from configure: the original gates are behind the cursor, so the
     # route recreates them.
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: list(real_steps))
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_kw: list(real_steps))
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
     spawned: list[BootstrapRun] = []
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned.append(run))

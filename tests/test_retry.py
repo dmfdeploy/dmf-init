@@ -174,7 +174,7 @@ def test_retry_422_passphrase_required_when_checkpoint_in_slice(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: None)
 
@@ -207,7 +207,7 @@ def test_retry_passes_passphrase_and_slices_from_failed_step(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -252,10 +252,12 @@ def test_configure_retry_recreates_only_trust_passkey_and_fresh_request_gates(
     env_dir, _ = _make_env_on_disk(data_root, env_id)
     (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
 
-    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    app = create_app(
+        Settings(data_root=data_root, tls_enabled=False, setup_request_gate=True)
+    )
     client = TestClient(app)
     _authenticate(client, app)
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
     spawned_runs: list[BootstrapRun] = []
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
@@ -300,7 +302,7 @@ def test_retry_seeds_openbao_redactions(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -334,7 +336,7 @@ def test_retry_409_past_checkpoint2_without_openbao_keys(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: None)
 
@@ -363,7 +365,7 @@ def test_retry_blocked_past_gate_without_export(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -394,7 +396,7 @@ def test_retry_allowed_past_gate_with_export(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -424,7 +426,7 @@ def test_retry_prepends_bao_preflight_past_unseal(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -454,7 +456,7 @@ def test_retry_no_preflight_resuming_at_unseal(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []
@@ -504,7 +506,7 @@ def test_retry_no_preflight_for_non_sandbox_profile(
     client = TestClient(app)
     _authenticate(client, app)
 
-    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps())
+    monkeypatch.setattr("dmf_init.main.build_bootstrap_steps", lambda ctx, **_: _real_build_steps())
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
 
     spawned_runs: list[BootstrapRun] = []

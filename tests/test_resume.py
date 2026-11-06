@@ -194,7 +194,7 @@ def test_retry_disk_resume_after_gc(
     _authenticate(client, app)
 
     monkeypatch.setattr(
-        "dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps()
+        "dmf_init.main.build_bootstrap_steps", lambda ctx, **_kw: _real_build_steps()
     )
     monkeypatch.setattr(
         "dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {}
@@ -249,7 +249,7 @@ def test_retry_stale_run_id_with_env_id_falls_back_to_disk(
     _authenticate(client, app)
 
     monkeypatch.setattr(
-        "dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps()
+        "dmf_init.main.build_bootstrap_steps", lambda ctx, **_kw: _real_build_steps()
     )
     monkeypatch.setattr(
         "dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {}
@@ -311,7 +311,7 @@ def test_retry_env_id_409_past_cp2_without_openbao_keys(
     _authenticate(client, app)
 
     monkeypatch.setattr(
-        "dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps()
+        "dmf_init.main.build_bootstrap_steps", lambda ctx, **_kw: _real_build_steps()
     )
     monkeypatch.setattr(
         "dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {}
@@ -455,7 +455,7 @@ def test_retry_heals_after_canonical_preflight_cursor(
     _authenticate(client, app)
 
     monkeypatch.setattr(
-        "dmf_init.main.build_bootstrap_steps", lambda ctx: _real_build_steps()
+        "dmf_init.main.build_bootstrap_steps", lambda ctx, **_kw: _real_build_steps()
     )
     monkeypatch.setattr(
         "dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {}

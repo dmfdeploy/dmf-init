@@ -276,7 +276,7 @@ def test_bootstrap_start_uses_real_graph_and_requires_two_remotes(
 
     captured: dict[str, object] = {}
 
-    def fake_build_bootstrap_steps(ctx):
+    def fake_build_bootstrap_steps(ctx, **_kw):
         captured["ctx"] = ctx
         return []
 
@@ -353,7 +353,7 @@ def test_bootstrap_passkey_status_uses_run_env_id(
 
     captured: dict[str, object] = {}
 
-    def fake_build_bootstrap_steps(ctx):
+    def fake_build_bootstrap_steps(ctx, **_kw):
         captured["ctx"] = ctx
         return []
 

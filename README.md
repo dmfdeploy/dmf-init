@@ -155,6 +155,13 @@ Loopback safety is the `-p 127.0.0.1:…` publish (never publish to a non-loopba
 host interface). HTTPS is opt-in (`-e DMF_TLS_ENABLED=true`) for when you reach
 it by a non-localhost address.
 
+The setup-request gate is off by default. When you turn it on
+(`-e DMF_SETUP_REQUEST_GATE=true`), the installer pauses for your first passkey and a
+setup request ID from the DMF Console before it runs `configure`. Leave it off until
+the dmf-infra support for setup requests lands, because the console can't issue an ID
+before then. For more information, see
+[dmfdeploy/dmfdeploy#844](https://github.com/dmfdeploy/dmfdeploy/issues/844).
+
 **Lost your session / launch link?** The session refreshes while you're active
 and lasts well beyond a single run idle, but if it lapses (or you closed the tab)
 the one-time launch link is spent. You don't need to restart; re-mint a fresh
