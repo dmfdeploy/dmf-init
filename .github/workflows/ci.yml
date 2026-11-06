@@ -39,6 +39,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Install command fails closed on a bad checksum
+        env:
+          REQUIRE_HTTP_FIXTURE: "1"
         run: test/launcher/test-install-command.sh
       - name: Release stamp pins the launcher image
         run: test/launcher/test-stamp-launcher-image.sh

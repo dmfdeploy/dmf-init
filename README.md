@@ -69,8 +69,10 @@ doesn't match, the command stops before it runs anything.
 
 The command does the following, in order:
 
-1. Changes to a new empty temporary directory, so a file that already exists in
-   your current directory can never run.
+1. Creates a new empty temporary directory and changes to it, so a file that
+   already exists in your current directory can never run or be overwritten. If
+   the directory can't be created, the command stops before it downloads
+   anything.
 2. Downloads `dmf-init` and `SHA256SUMS` with one `curl` call each, so a failed
    download stops the command.
 3. Requires `SHA256SUMS` to hold exactly one line: a 64-character lowercase hex
@@ -84,7 +86,10 @@ The command does the following, in order:
 version=v0.4.0
 base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
 
-cd "$(mktemp -d)" &&
+dir="$(mktemp -d)" &&
+  [ -n "${dir}" ] &&
+  [ -d "${dir}" ] &&
+  cd "${dir}" &&
   curl -fsSL -o dmf-init "${base}/dmf-init" &&
   curl -fsSL -o SHA256SUMS "${base}/SHA256SUMS" &&
   [ "$(grep -c '' SHA256SUMS)" -eq 1 ] &&

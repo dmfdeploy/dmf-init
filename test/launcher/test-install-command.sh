@@ -12,7 +12,12 @@ ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1" >&2; }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+SERVER_PID=""
+cleanup() {
+  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
 
 # Pull the fenced block between the README markers.
 awk '/install-command:start/{on=1;next} /install-command:end/{on=0} on && !/^```/' \
@@ -135,6 +140,129 @@ for tool in sha256sum shasum; do
   run_case "$tool" "$bindir" "missing launcher never runs a dmf-init already in the start directory" 1 missing_launcher_planted
   run_case "$tool" "$bindir" "missing checksum never runs a dmf-init already in the start directory" 1 missing_sums_planted
 done
+
+
+# --- HTTP error statuses ---------------------------------------------------
+# file:// URLs fail on a missing file even without `curl -f`, so they can't show
+# that the command rejects an HTTP error page. A local server returns real
+# status codes with a body that would pass the checksum if curl kept it.
+# CI sets REQUIRE_HTTP_FIXTURE=1 so a missing python3 fails instead of skipping.
+cat > "$WORK/server.py" <<'PY'
+import http.server, os, sys
+
+ROOT, PORTFILE = sys.argv[1], sys.argv[2]
+# The first path segment picks the behaviour: it names the file that answers
+# with an error status, or "ok" for none. The error response still carries the
+# real file as its body.
+FAIL = {"launcher404": ("dmf-init", 404), "sums500": ("SHA256SUMS", 500)}
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = os.path.normpath(os.path.join(ROOT, self.path.lstrip("/")))
+        mode = self.path.lstrip("/").split("/", 1)[0]
+        if not path.startswith(ROOT + os.sep) or not os.path.isfile(path):
+            self.send_response(404); self.end_headers(); return
+        status = 200
+        name, code = FAIL.get(mode, (None, 200))
+        if os.path.basename(path) == name:
+            status = code
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+with open(PORTFILE, "w") as f:
+    f.write(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+
+start_server() {
+  mkdir -p "$WORK/http"
+  python3 -I "$WORK/server.py" "$WORK/http" "$WORK/port" &
+  SERVER_PID=$!
+  local i
+  for i in $(seq 1 50); do [ -s "$WORK/port" ] && return 0; sleep 0.1; done
+  return 1
+}
+
+# $1 tool label, $2 PATH dir, $3 mode (ok|launcher404|sums500), $4 expected, $5 label
+run_http_case() {
+  local tool="$1" bindir="$2" mode="$3" want="$4" label="$5" rc=0
+  rm -rf "$WORK/http"/* "$RAN_FILE" "$WORK/run"
+  mkdir -p "$WORK/http/$mode/$VERSION" "$WORK/run/sub"
+  fixture_launcher > "$WORK/http/$mode/$VERSION/dmf-init"
+  ( cd "$WORK/http/$mode/$VERSION" && sha dmf-init > SHA256SUMS )
+  sed -e "s|https://github.com/dmfdeploy/dmf-init/releases/download/|http://127.0.0.1:${PORT}/${mode}/|" \
+    "$WORK/cmd.raw" > "$WORK/cmd-http.sh"
+  grep -q "http://127.0.0.1:${PORT}/${mode}/" "$WORK/cmd-http.sh" || { echo "URL rewrite failed" >&2; exit 1; }
+  ( cd "$WORK/run/sub" && PATH="$bindir" bash "$WORK/cmd-http.sh" ) >"$WORK/out" 2>&1 || rc=$?
+  local stray; stray="$(ls -A "$WORK/run/sub")"
+  if [ "$want" = 0 ]; then
+    if [ "$rc" = 0 ] && [ -f "$RAN_FILE" ] && [ -z "$stray" ]; then ok "[$tool] $label"; else bad "[$tool] $label (rc=$rc)"; cat "$WORK/out" >&2; fi
+  else
+    if [ "$rc" != 0 ] && [ ! -f "$RAN_FILE" ] && [ -z "$stray" ]; then ok "[$tool] $label"; else bad "[$tool] $label (rc=$rc, launcher ran: $([ -f "$RAN_FILE" ] && echo yes || echo no), start dir: ${stray:-empty})"; cat "$WORK/out" >&2; fi
+  fi
+}
+
+if ! command -v python3 >/dev/null; then
+  if [ "${REQUIRE_HTTP_FIXTURE:-0}" = 1 ]; then bad "python3 is required for the HTTP status cases"; else echo "  skip HTTP status cases: python3 not installed"; fi
+elif ! start_server; then
+  bad "HTTP fixture server did not start"
+else
+  PORT="$(cat "$WORK/port")"
+  for tool in sha256sum shasum; do
+    if [ "$tool" = sha256sum ]; then bindir="$WORK/bin-sha256sum"; have="$HAVE_SHA256SUM"; else bindir="$WORK/bin-shasum"; have="$HAVE_SHASUM"; fi
+    [ "$have" = 1 ] || continue
+    echo "install command over HTTP, checksum tool: $tool"
+    run_http_case "$tool" "$bindir" ok          0 "runs the launcher on 200 responses"
+    run_http_case "$tool" "$bindir" launcher404 1 "refuses a 404 launcher with a body that matches the checksum"
+    run_http_case "$tool" "$bindir" sums500     1 "refuses a 500 checksum file with a valid body"
+  done
+fi
+
+# --- mktemp failure --------------------------------------------------------
+# On macOS `cd ""` succeeds and stays put, so a failed mktemp must stop the
+# command before any download. The start directory holds a launcher and a
+# matching checksum that the release would also match, and SHA256SUMS is a
+# symlink whose target a download could overwrite.
+mktemp_fail_case() {
+  local shell_name="$1" shell_path="$2" rc=0
+  rm -rf "$REL" "$RAN_FILE" "$WORK/run"
+  mkdir -p "$DIR" "$WORK/run/sub"
+  fixture_launcher > "$DIR/dmf-init"
+  good_sums
+  mkdir -p "$WORK/failbin"
+  mkbin "$WORK/failbin" sha256sum
+  [ "$HAVE_SHA256SUM" = 1 ] || mkbin "$WORK/failbin" shasum
+  rm -f "$WORK/failbin/mktemp"
+  printf '#!/bin/sh\nexit 1\n' > "$WORK/failbin/mktemp"; chmod +x "$WORK/failbin/mktemp"
+  fixture_launcher > "$WORK/run/sub/dmf-init"
+  printf 'VICTIM\n' > "$WORK/run/victim"
+  ln -s ../victim "$WORK/run/sub/SHA256SUMS"
+  local before_launcher before_victim
+  before_launcher="$(cat "$WORK/run/sub/dmf-init")"; before_victim="$(cat "$WORK/run/victim")"
+  ( cd "$WORK/run/sub" && PATH="$WORK/failbin" "$shell_path" "$WORK/cmd.sh" ) >"$WORK/out" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && [ ! -f "$RAN_FILE" ] \
+     && [ "$(cat "$WORK/run/sub/dmf-init")" = "$before_launcher" ] \
+     && [ "$(cat "$WORK/run/victim")" = "$before_victim" ] \
+     && [ -L "$WORK/run/sub/SHA256SUMS" ] \
+     && [ "$(ls -A "$WORK/run/sub" | wc -l | tr -d ' ')" = 2 ]; then
+    ok "[$shell_name] a failed mktemp stops before any download or run"
+  else
+    bad "[$shell_name] a failed mktemp stops before any download or run (rc=$rc, launcher ran: $([ -f "$RAN_FILE" ] && echo yes || echo no))"; cat "$WORK/out" >&2
+  fi
+}
+
+echo "install command, mktemp failure"
+if [ "$HAVE_SHA256SUM" = 1 ] || [ "$HAVE_SHASUM" = 1 ]; then
+  mktemp_fail_case bash "$(command -v bash)"
+  if command -v zsh >/dev/null; then mktemp_fail_case zsh "$(command -v zsh)"; else echo "  skip [zsh] not installed on this machine"; fi
+fi
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
