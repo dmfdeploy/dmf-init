@@ -468,7 +468,6 @@ def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], No
     cursor_path = _resume_cursor_path(ctx.data_root, ctx.env_id)
 
     def _journal(run: BootstrapRun) -> None:
-        prior = _load_resume_cursor(ctx.data_root, ctx.env_id)
         if run.final_status == "complete":
             cursor_path.unlink(missing_ok=True)
             return
@@ -477,7 +476,7 @@ def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], No
             "env_id": run.env_id,
             "run_id": run.run_id,
             "failed_step_id": _canonical_failed_step_id(run),
-            "completed_step_ids": _completed_step_ids(run, prior),
+            "setup_request_gate": run.setup_request_gate,
             "final_status": run.final_status,
             "finished_at": run.finished_at,
         }
@@ -491,47 +490,43 @@ def make_resume_journal_fn(ctx: BootstrapContext) -> Callable[[BootstrapRun], No
     return _journal
 
 
-def _completed_step_ids(run: BootstrapRun, prior: dict[str, Any] | None) -> list[str]:
-    """Step ids that finished successfully, across this run and the cursor it resumed.
+def _gate_mode_mismatch(recorded: object, current: bool) -> str | None:
+    """Return a refusal message unless a retry runs in the mode the run was built with.
 
-    A retry only runs a slice, so earlier completions live in the previous
-    cursor. The retry guard reads this list to tell whether a step that the
-    current graph orders before the cursor actually ran.
+    The step order depends on the gate setting, so slicing a graph at a cursor
+    written under the other mode can skip a step that never completed. Only a
+    JSON boolean counts as a recorded mode; anything else, including a cursor
+    from before the mode was recorded, is treated as unknown.
     """
-    done: list[str] = []
-    prior_ids = (prior or {}).get("completed_step_ids")
-    if isinstance(prior_ids, list):
-        done.extend(i for i in prior_ids if isinstance(i, str))
-    for ev in getattr(run, "events", []):
-        if ev.get("event") == "step_complete" and ev.get("status") == "ok":
-            sid = ev.get("step")
-            if isinstance(sid, str) and sid not in done:
-                done.append(sid)
-    return done
+    if not isinstance(recorded, bool):
+        return (
+            "cannot tell which setup-request gate setting this run used (it "
+            "predates the record); start a fresh run"
+        )
+    if recorded != current:
+        return (
+            "the setup-request gate setting changed since this run started; "
+            "start a fresh run"
+        )
+    return None
 
 
 def _canonical_failed_step_id(run: BootstrapRun) -> str | None:
-    """Return the earliest step a retry must rerun, never a later one.
+    """Map the synthetic bao-preflight step back to the canonical step it guards.
 
-    A retry inserts steps ahead of its target: the OpenBao preflight (ADR-0044
-    facet d, absent from build_bootstrap_steps()) and, with the setup-request
-    gate on, the workstation and gate pauses. If one of those fails, the step
-    that actually needs rerunning is still the original target. Recording the
-    inserted step, or the one after it, would let a restart in the other gate
-    mode slice the step list past a step that never completed.
+    The preflight (ADR-0044 facet d) is prepended to a retry slice and is NOT in
+    build_bootstrap_steps(). If a run fails there, persisting/returning
+    ``bao-preflight`` as the failed step would dead-end the next retry (idx lookup
+    409s "not in build") and poison the disk cursor. Since the preflight always
+    sits immediately before the canonical step it guards, resolve to that step.
     """
     fsid = run.failed_step_id
-    target = getattr(run, "retry_target_id", None)
-    ids = [step.id for step in run.steps]
-    if target is not None and fsid in ids and target in ids:
-        if ids.index(fsid) < ids.index(target):
-            return target
     if fsid != BAO_PREFLIGHT_ID:
         return fsid
-    if BAO_PREFLIGHT_ID not in ids:
-        return fsid
-    i = ids.index(BAO_PREFLIGHT_ID)
-    return ids[i + 1] if i + 1 < len(ids) else None
+    for i, step in enumerate(run.steps):
+        if step.id == BAO_PREFLIGHT_ID:
+            return run.steps[i + 1].id if i + 1 < len(run.steps) else None
+    return fsid
 
 
 def _run_worker_wrapper(run: BootstrapRun) -> None:
@@ -853,6 +848,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
                 journal_fn=make_resume_journal_fn(ctx),
+                setup_request_gate=settings.setup_request_gate,
             )
         except Exception:
             _clear_active()
@@ -890,6 +886,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         detail="run env_id unavailable",
                     )
                 env_id = run.env_id
+                mismatch = _gate_mode_mismatch(
+                    run.setup_request_gate, settings.setup_request_gate
+                )
+                if mismatch:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT, detail=mismatch
+                    )
                 failed_step_id = _canonical_failed_step_id(run)
                 if failed_step_id is None:
                     for ev in reversed(run.events):
@@ -908,6 +911,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from exc
             cursor = _load_resume_cursor(settings.data_root, payload.env_id)
             if cursor is not None and cursor.get("final_status") == "error":
+                mismatch = _gate_mode_mismatch(
+                    cursor.get("setup_request_gate"), settings.setup_request_gate
+                )
+                if mismatch:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT, detail=mismatch
+                    )
                 env_id = payload.env_id
                 failed_step_id = cursor.get("failed_step_id")
 
@@ -954,25 +964,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"failed step '{failed_step_id}' not in build",
                 ) from None
-            # The graph order depends on the gate setting. With the gate off,
-            # `workstation` comes after `configure`, so a cursor written under
-            # the gate (or by an older build) can name it while configure never
-            # completed. Without proof that configure finished, refuse.
-            if "configure" in [s.id for s in all_steps[:idx]]:
-                done_ids = (_load_resume_cursor(settings.data_root, env_id) or {}).get(
-                    "completed_step_ids"
-                )
-                if failed_step_id == "workstation" and not (
-                    isinstance(done_ids, list) and "configure" in done_ids
-                ):
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=(
-                            "cannot tell whether 'configure' completed before "
-                            "'workstation'; refusing to skip it. Start a new setup "
-                            "run, or retry with DMF_SETUP_REQUEST_GATE=true."
-                        ),
-                    )
             steps = all_steps[idx:]
             # A configure retry starts after its original first-passkey and
             # one-use receipt gates. Recreate only those gates, then rerun the
@@ -1051,7 +1042,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
                 journal_fn=make_resume_journal_fn(ctx),
-                retry_target_id=failed_step_id,
+                setup_request_gate=settings.setup_request_gate,
             )
             seed_openbao_redactions(retry_run, ctx)
             _register_and_spawn(env_id, retry_run, _clear_active)

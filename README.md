@@ -160,7 +160,8 @@ The setup-request gate is off by default. When you turn it on
 setup request ID from the DMF Console before it runs `configure`. Leave it off until
 the dmf-infra support for setup requests lands, because the console can't issue an ID
 before then. A run that is waiting at one of these pauses doesn't survive a
-container restart, so start a new run if the container restarts. For more information, see
+container restart, so start a new run if the container restarts. A run started with
+one gate setting can't be retried after the setting changes; start a new run. For more information, see
 [dmfdeploy/dmfdeploy#844](https://github.com/dmfdeploy/dmfdeploy/issues/844).
 
 **Lost your session / launch link?** The session refreshes while you're active

@@ -142,7 +142,7 @@ def test_fresh_run_with_the_gate_waits_and_then_needs_an_id(stub_payloads: None)
     assert executor.steps[0].env["DMF_SETUP_REQUEST_ID"] == "a" * 32
 
 
-def _write_cursor(data_root: Path, failed_step_id: str) -> None:
+def _write_cursor(data_root: Path, failed_step_id: str, *, gate: bool) -> None:
     path = data_root / "runs" / ENV / "resume.json"
     path.write_text(
         json.dumps(
@@ -151,6 +151,7 @@ def _write_cursor(data_root: Path, failed_step_id: str) -> None:
                 "env_id": ENV,
                 "run_id": "old",
                 "failed_step_id": failed_step_id,
+                "setup_request_gate": gate,
                 "final_status": "error",
                 "finished_at": 1.0,
             }
@@ -163,7 +164,7 @@ def _retry_from_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, gate: b
     data_root = tmp_path / "data"
     env_dir, _ = _make_env_on_disk(data_root, ENV)
     (env_dir / "openbao-keys.json").write_text("{}", encoding="utf-8")
-    _write_cursor(data_root, "configure")
+    _write_cursor(data_root, "configure", gate=gate)
     app = create_app(Settings(data_root=data_root, tls_enabled=False, setup_request_gate=gate))
     client = TestClient(app)
     _authenticate(client, app)

@@ -206,7 +206,9 @@ def test_retry_recreated_gates_enforce_the_same_checks(
     monkeypatch.setattr("dmf_init.main.make_checkpoint_fn", lambda ctx: lambda run, n: {})
     spawned: list[BootstrapRun] = []
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned.append(run))
-    failed = BootstrapRun(run_id="failed", steps=list(real_steps), env_id=ENV)
+    failed = BootstrapRun(
+        run_id="failed", steps=list(real_steps), env_id=ENV, setup_request_gate=True
+    )
     failed.failed_step_id = "configure"
     failed.emit({"event": "error", "step": "configure", "error": "x", "hint": ""}, terminal=True)
     app.state.bootstrap_runs["failed"] = failed

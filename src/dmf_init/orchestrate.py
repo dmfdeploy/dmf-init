@@ -108,10 +108,10 @@ class BootstrapRun:
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     failed_step_id: str | None = None
-    # The step a retry was asked to resume from. A retry inserts steps ahead of
-    # it (preflight, setup-request gates); if one of those fails, the journal
-    # keeps this target so a later retry cannot skip past the original failure.
-    retry_target_id: str | None = None
+    # The gate mode this run's step list was built with. The journal records it
+    # because the graph order depends on it, so a retry in another mode could
+    # slice past a step that never ran. None means unknown.
+    setup_request_gate: bool | None = None
 
     def __post_init__(self) -> None:
         self.pauses = {

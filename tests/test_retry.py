@@ -51,7 +51,9 @@ def _make_failed_run(
 ) -> str:
     all_steps = _real_build_steps()
     run_id = "failed-run-1"
-    run = BootstrapRun(run_id=run_id, steps=all_steps, env_id=env_id)
+    run = BootstrapRun(
+        run_id=run_id, steps=all_steps, env_id=env_id, setup_request_gate=False
+    )
     run.emit({"event": "run_start", "run_id": run_id, "steps": [s.id for s in all_steps]})
     run.emit({"event": "step_start", "step": "pre-seed", "index": 0, "kind": "command"})
     run.emit({"event": "step_complete", "step": "pre-seed", "status": "ok"})
@@ -263,6 +265,7 @@ def test_configure_retry_recreates_only_trust_passkey_and_fresh_request_gates(
     monkeypatch.setattr("dmf_init.main.run_worker", lambda run: spawned_runs.append(run))
 
     run_id = _make_failed_run(app, env_id=env_id, failed_step_id="configure")
+    app.state.bootstrap_runs[run_id].setup_request_gate = True
     _seed_current_download(app, env_id)
     response = client.post(
         "/api/bootstrap/retry",
