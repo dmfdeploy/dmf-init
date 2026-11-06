@@ -67,7 +67,7 @@ missing or doesn't match, the command stops before it runs anything.
 
 <!-- install-command:start -->
 ```bash
-version=v0.3.5
+version=v0.3.6
 base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
 curl -fsSLO "${base}/dmf-init" -O "${base}/SHA256SUMS" &&
   { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; } &&

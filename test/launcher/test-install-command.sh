@@ -33,14 +33,19 @@ sed -e "s|https://github.com/dmfdeploy/dmf-init/releases/download/|file://${REL}
     -e 's|bash dmf-init up|echo LAUNCHED > ../ran|' "$WORK/cmd.raw" > "$WORK/cmd.sh"
 grep -q "file://${REL}/" "$WORK/cmd.sh" || { echo "URL rewrite failed" >&2; exit 1; }
 
+# The fixture release directory follows the version the README pins.
+VERSION="$(sed -n 's/^version=\(v[0-9][0-9.]*\).*/\1/p' "$WORK/cmd.raw" | head -n 1)"
+[ -n "$VERSION" ] || { echo "no version= line in the install command" >&2; exit 1; }
+DIR="$REL/$VERSION"
+
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 
 # $1 label, $2 expected exit (0 = runs, 1 = refuses), $3 setup function name
 run_case() {
   local label="$1" want="$2" setup="$3" rc=0
   rm -rf "$REL" "$WORK/ran" "$WORK/run"
-  mkdir -p "$REL/v0.3.5" "$WORK/run/sub"
-  printf '#!/usr/bin/env bash\necho hello\n' > "$REL/v0.3.5/dmf-init"
+  mkdir -p "$DIR" "$WORK/run/sub"
+  printf '#!/usr/bin/env bash\necho hello\n' > "$DIR/dmf-init"
   "$setup"
   ( cd "$WORK/run/sub" && bash "$WORK/cmd.sh" ) >"$WORK/out" 2>&1 || rc=$?
   if [ "$want" = 0 ]; then
@@ -50,11 +55,11 @@ run_case() {
   fi
 }
 
-good_sums()  { ( cd "$REL/v0.3.5" && sha dmf-init > SHA256SUMS ); }
-wrong_sums() { ( cd "$REL/v0.3.5" && printf '%064d  dmf-init\n' 0 > SHA256SUMS ); }
-empty_sums() { : > "$REL/v0.3.5/SHA256SUMS"; }
+good_sums()  { ( cd "$DIR" && sha dmf-init > SHA256SUMS ); }
+wrong_sums() { ( cd "$DIR" && printf '%064d  dmf-init\n' 0 > SHA256SUMS ); }
+empty_sums() { : > "$DIR/SHA256SUMS"; }
 no_sums()    { :; }
-tampered()   { good_sums; printf 'echo pwned\n' >> "$REL/v0.3.5/dmf-init"; }
+tampered()   { good_sums; printf 'echo pwned\n' >> "$DIR/dmf-init"; }
 
 echo "install command:"
 run_case "runs the launcher when the checksum matches"      0 good_sums
