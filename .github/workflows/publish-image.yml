@@ -1,6 +1,8 @@
 name: publish-image
 # Build the dmf-init container image (amd64+arm64) and push to GHCR per release
-# (v* tag) or manual dispatch. Public repo -> free hosted runners; the built-in
+# (v* tag) or manual dispatch. For a v* tag, a second job then publishes the
+# launcher and its SHA-256 checksum as Release assets, pinned to the digest of
+# the image that this run pushed. Public repo -> free hosted runners; the built-in
 # GITHUB_TOKEN publishes to ghcr.io/dmfdeploy/dmf-init (no PAT). The image fetches
 # the component repos at RUNTIME, so it needs rebuilding only when dmf-init is
 # released, not when playbooks change.
@@ -20,6 +22,11 @@ concurrency:
 jobs:
   build-push:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
@@ -39,6 +46,7 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
       - name: Build and push (amd64 + arm64)
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
@@ -48,3 +56,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Runs only after the image was built and pushed. A failed or skipped image
+  # job means no launcher assets, so a published launcher always has its image.
+  launcher:
+    needs: build-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build the launcher and checksum
+        env:
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ needs.build-push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag must look like v1.2.3, got: $TAG" >&2; exit 1; }
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no image digest from the build job: $DIGEST" >&2; exit 1; }
+          # The image job tags semver releases without the leading "v".
+          scripts/build-launcher-release.sh "ghcr.io/dmfdeploy/dmf-init:${TAG#v}@${DIGEST}" release
+          grep -n '^DEFAULT_IMAGE=' release/dmf-init
+          cat release/SHA256SUMS
+      - name: Attach to Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
+        with:
+          files: |
+            release/dmf-init
+            release/SHA256SUMS
