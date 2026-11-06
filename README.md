@@ -60,19 +60,30 @@ To get started, the `dmf-init` launcher wraps Docker for you; it
 starts the container with the correct flags, waits until it's ready, extracts the
 one-time launch link, and opens your browser. No clone required:
 
-Read the launcher before you run it. Download it, read it, then run it:
+Each release publishes the launcher together with a SHA-256 checksum file. The
+command below downloads both for one tagged release, checks the launcher against
+the checksum, and runs it only if the check passes. If the checksum file is
+missing or doesn't match, the command stops before it runs anything.
 
+<!-- install-command:start -->
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dmfdeploy/dmf-init/main/bin/dmf-init -o dmf-init
-less dmf-init
-bash dmf-init up
+version=v0.3.5
+base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
+curl -fsSLO "${base}/dmf-init" -O "${base}/SHA256SUMS" &&
+  { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; } &&
+  bash dmf-init up
 ```
+<!-- install-command:end -->
 
-If you trust the source, you can pipe the launcher into your shell instead. This runs remote code without a chance to read it first:
+The command uses `sha256sum` on Linux and falls back to `shasum -a 256` on macOS.
+Run it in an empty directory, because it saves `dmf-init` and `SHA256SUMS` there.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/dmfdeploy/dmf-init/main/bin/dmf-init | bash -s -- up
-```
+To choose a version, set `version` to any tag from the
+[releases page](https://github.com/dmfdeploy/dmf-init/releases). Use a tag, never
+`main`. A checksum from the same release catches a corrupted or partial download.
+It doesn't prove who published the release, so read the launcher first if you
+want to review it. To read it before you run it, replace the last line with
+`less dmf-init`, then run `bash dmf-init up` yourself.
 
 From a clone, run `bin/dmf-init`:
 
