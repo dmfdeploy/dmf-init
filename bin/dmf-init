@@ -14,7 +14,8 @@
 #   dmf-init down      stop and remove the container
 #
 # Options for `up`:
-#   --image REF        container image (default ghcr.io/dmfdeploy/dmf-init:latest)
+#   --image REF        container image (default: ghcr.io/dmfdeploy/dmf-init, tagged
+#                      to match a release launcher; :latest in a clone)
 #   --port N           host port to publish on (default 8000; container stays 8000)
 #   --tls              serve HTTPS (self-signed; DMF_TLS_ENABLED=true)
 #   --repo-base-url U  fetch component repos from a private mirror
@@ -31,6 +32,8 @@ set -euo pipefail
 CONTAINER_NAME="dmf-init"
 LABEL_KEY="org.dmfdeploy.launcher"
 LABEL_VAL="dmf-init"
+# The release workflow rewrites the next line (scripts/stamp-launcher-image.sh),
+# so keep it as a single line in exactly this form.
 DEFAULT_IMAGE="ghcr.io/dmfdeploy/dmf-init:latest"
 DATA_ROOT="/tmp/dmf-init-data"
 INTERNAL_PORT=8000

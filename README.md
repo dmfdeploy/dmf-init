@@ -67,7 +67,7 @@ missing or doesn't match, the command stops before it runs anything.
 
 <!-- install-command:start -->
 ```bash
-version=v0.3.6
+version=v0.4.0
 base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
 curl -fsSLO "${base}/dmf-init" -O "${base}/SHA256SUMS" &&
   { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; } &&
@@ -77,6 +77,8 @@ curl -fsSLO "${base}/dmf-init" -O "${base}/SHA256SUMS" &&
 
 The command uses `sha256sum` on Linux and falls back to `shasum -a 256` on macOS.
 Run it in an empty directory, because it saves `dmf-init` and `SHA256SUMS` there.
+The published launcher starts the container image from the same release. To use
+a different image, pass `--image`.
 
 To choose a version, set `version` to any tag from the
 [releases page](https://github.com/dmfdeploy/dmf-init/releases). Use a tag, never
