@@ -649,7 +649,9 @@ def build_checkpoint_export_gate_payload(ctx: BootstrapContext) -> dict[str, Any
     }
 
 
-def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
+def build_bootstrap_steps(
+    ctx: BootstrapContext, *, setup_request_gate: bool = False
+) -> list[Step]:
     return [
         _command_step(
             ctx,
@@ -687,27 +689,7 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             "post-seed",
             ctx.run_playbook_argv("bootstrap-sandbox-provision-post-seed.yml"),
         ),
-        PauseStep(
-            id="workstation",
-            title="Prepare your workstation",
-            payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
-        ),
-        PauseStep(
-            id=INITIAL_PASSKEY_GATE_ID,
-            title="Establish your first passkey",
-            payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
-        ),
-        PauseStep(
-            id="setup-request",
-            title="Authorize setup inventory",
-            payload_fn=lambda run, ctx=ctx: build_setup_request_payload(ctx),
-        ),
-        _command_step(
-            ctx,
-            "configure",
-            ctx.run_playbook_argv("bootstrap-sandbox-configure.yml"),
-            setup_request_pause_id="setup-request",
-        ),
+        *_configure_steps(ctx, setup_request_gate=setup_request_gate),
         PauseStep(
             id="passkey",
             title="Complete passkey enrollment",
@@ -719,6 +701,45 @@ def build_bootstrap_steps(ctx: BootstrapContext) -> list[Step]:
             ctx.run_playbook_argv("bootstrap-sandbox-verify.yml"),
         ),
         CheckpointStep(id="checkpoint-3", n=3),
+    ]
+
+
+def build_workstation_step(ctx: BootstrapContext) -> PauseStep:
+    return PauseStep(
+        id="workstation",
+        title="Prepare your workstation",
+        payload_fn=lambda run, ctx=ctx: build_workstation_payload(ctx),
+    )
+
+
+def build_setup_request_gate_steps(ctx: BootstrapContext) -> list[Step]:
+    """Pauses that must finish before `configure` when the setup-request gate is on."""
+    return [
+        build_workstation_step(ctx),
+        PauseStep(
+            id=INITIAL_PASSKEY_GATE_ID,
+            title="Establish your first passkey",
+            payload_fn=lambda run, ctx=ctx: build_passkey_payload(ctx),
+        ),
+        PauseStep(
+            id="setup-request",
+            title="Authorize setup inventory",
+            payload_fn=lambda run, ctx=ctx: build_setup_request_payload(ctx),
+        ),
+    ]
+
+
+def _configure_steps(ctx: BootstrapContext, *, setup_request_gate: bool) -> list[Step]:
+    # With the gate off, configure runs first and the workstation pause follows,
+    # because nothing before configure needs the console or a passkey.
+    configure_playbook = ctx.run_playbook_argv("bootstrap-sandbox-configure.yml")
+    if not setup_request_gate:
+        return [_command_step(ctx, "configure", configure_playbook), build_workstation_step(ctx)]
+    return [
+        *build_setup_request_gate_steps(ctx),
+        _command_step(
+            ctx, "configure", configure_playbook, setup_request_pause_id="setup-request"
+        ),
     ]
 
 

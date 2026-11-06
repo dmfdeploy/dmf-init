@@ -68,6 +68,11 @@ class Settings:
     # container additionally prints a parseable `DMF_LAUNCH {json}` line so the
     # launcher can extract the token without scraping human-formatted log text.
     launch_json: bool = False
+    # Setup-request gate (dmfdeploy/dmfdeploy#844): when on, configure waits for
+    # the first passkey and a console-issued setup request id. It stays off until
+    # dmf-infra can deploy the console's setup-request support, because without
+    # it the console cannot issue an id and a fresh bootstrap would wait forever.
+    setup_request_gate: bool = False
 
 
 def load_settings() -> Settings:
@@ -103,4 +108,7 @@ def load_settings() -> Settings:
             os.getenv("DMF_ALLOW_NON_TMPFS_DATA_ROOT", "false").lower().strip() != "true"
         ),
         launch_json=os.getenv("DMF_LAUNCH_JSON", "false").lower().strip() == "true",
+        setup_request_gate=(
+            os.getenv("DMF_SETUP_REQUEST_GATE", "false").lower().strip() == "true"
+        ),
     )
