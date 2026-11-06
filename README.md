@@ -60,32 +60,54 @@ To get started, the `dmf-init` launcher wraps Docker for you; it
 starts the container with the correct flags, waits until it's ready, extracts the
 one-time launch link, and opens your browser. No clone required:
 
-Each release publishes the launcher together with a SHA-256 checksum file. The
-command below downloads both for one tagged release, checks the launcher against
-the checksum, and runs it only if the check passes. If the checksum file is
-missing or doesn't match, the command stops before it runs anything.
+From v0.4.0 on, each release publishes the launcher together with a SHA-256
+checksum file, after the release's container image is built and pushed. Earlier
+releases have neither asset. The command below downloads both for one tagged
+release, checks the launcher against the checksum, and runs it only if the check
+passes. If a download fails, or the checksum file is missing, malformed, or
+doesn't match, the command stops before it runs anything.
+
+The command does the following, in order:
+
+1. Changes to a new empty temporary directory, so a file that already exists in
+   your current directory can never run.
+2. Downloads `dmf-init` and `SHA256SUMS` with one `curl` call each, so a failed
+   download stops the command.
+3. Requires `SHA256SUMS` to hold exactly one line: a 64-character lowercase hex
+   digest, two spaces, and the name `dmf-init`.
+4. Computes the digest of `dmf-init` with `sha256sum` (Linux) or `shasum`
+   (macOS), and compares it with the digest from `SHA256SUMS`.
+5. Runs `bash dmf-init up` only if the digests are identical.
 
 <!-- install-command:start -->
 ```bash
 version=v0.4.0
 base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
-curl -fsSLO "${base}/dmf-init" -O "${base}/SHA256SUMS" &&
-  { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; } &&
+
+cd "$(mktemp -d)" &&
+  curl -fsSL -o dmf-init "${base}/dmf-init" &&
+  curl -fsSL -o SHA256SUMS "${base}/SHA256SUMS" &&
+  [ "$(grep -c '' SHA256SUMS)" -eq 1 ] &&
+  expected="$(sed -n -E 's/^([0-9a-f]{64})  dmf-init$/\1/p' SHA256SUMS)" &&
+  [ -n "${expected}" ] &&
+  actual="$({ sha256sum dmf-init 2>/dev/null || shasum -a 256 dmf-init; } | cut -d ' ' -f 1)" &&
+  [ "${actual}" = "${expected}" ] &&
   bash dmf-init up
 ```
 <!-- install-command:end -->
 
-The command uses `sha256sum` on Linux and falls back to `shasum -a 256` on macOS.
-Run it in an empty directory, because it saves `dmf-init` and `SHA256SUMS` there.
-The published launcher starts the container image from the same release. To use
-a different image, pass `--image`.
+The command saves `dmf-init` and `SHA256SUMS` in the new directory and leaves
+your shell there. The published launcher starts the container image that was
+built for the same release, pinned by digest. To use a different image, pass
+`--image`.
 
-To choose a version, set `version` to any tag from the
-[releases page](https://github.com/dmfdeploy/dmf-init/releases). Use a tag, never
-`main`. A checksum from the same release catches a corrupted or partial download.
-It doesn't prove who published the release, so read the launcher first if you
-want to review it. To read it before you run it, replace the last line with
-`less dmf-init`, then run `bash dmf-init up` yourself.
+To choose a version, set `version` to a tag from the
+[releases page](https://github.com/dmfdeploy/dmf-init/releases) that lists both
+`dmf-init` and `SHA256SUMS` as assets. Use a tag, never `main`. A checksum from
+the same release catches a corrupted or partial download. It doesn't prove who
+published the release, so read the launcher first if you want to review it. To
+read it before you run it, replace the last line with `less dmf-init`, then run
+`bash dmf-init up` yourself.
 
 From a clone, run `bin/dmf-init`:
 

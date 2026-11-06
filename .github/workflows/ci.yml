@@ -42,6 +42,8 @@ jobs:
         run: test/launcher/test-install-command.sh
       - name: Release stamp pins the launcher image
         run: test/launcher/test-stamp-launcher-image.sh
+      - name: Release assets are built in the right order
+        run: test/launcher/test-build-launcher-release.sh
 
   frontend:
     runs-on: ubuntu-24.04
