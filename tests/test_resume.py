@@ -86,6 +86,7 @@ def _write_resume_cursor(
     *,
     failed_step_id: str | None,
     final_status: str = "error",
+    setup_request_gate: bool = False,
 ) -> Path:
     path = data_root / "runs" / env_id / "resume.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +97,7 @@ def _write_resume_cursor(
                 "env_id": env_id,
                 "run_id": "gc-d-run",
                 "failed_step_id": failed_step_id,
+                "setup_request_gate": setup_request_gate,
                 "final_status": final_status,
                 "finished_at": 123.0,
             }
@@ -421,6 +423,7 @@ def test_journal_maps_preflight_failure_to_canonical_step(tmp_path: Path) -> Non
         env_id=env_id,
         final_status="error",
         failed_step_id="bao-preflight",
+        setup_request_gate=False,
         finished_at=123.0,
         steps=[
             SimpleNamespace(id="bao-preflight"),
