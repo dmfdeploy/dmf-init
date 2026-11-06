@@ -185,8 +185,7 @@ start_server() {
   mkdir -p "$WORK/http"
   python3 -I "$WORK/server.py" "$WORK/http" "$WORK/port" &
   SERVER_PID=$!
-  local i
-  for i in $(seq 1 50); do [ -s "$WORK/port" ] && return 0; sleep 0.1; done
+  for _ in $(seq 1 50); do [ -s "$WORK/port" ] && return 0; sleep 0.1; done
   return 1
 }
 
@@ -251,7 +250,7 @@ mktemp_fail_case() {
      && [ "$(cat "$WORK/run/sub/dmf-init")" = "$before_launcher" ] \
      && [ "$(cat "$WORK/run/victim")" = "$before_victim" ] \
      && [ -L "$WORK/run/sub/SHA256SUMS" ] \
-     && [ "$(ls -A "$WORK/run/sub" | wc -l | tr -d ' ')" = 2 ]; then
+     && [ "$(find "$WORK/run/sub" -mindepth 1 | wc -l | tr -d ' ')" = 2 ]; then
     ok "[$shell_name] a failed mktemp stops before any download or run"
   else
     bad "[$shell_name] a failed mktemp stops before any download or run (rc=$rc, launcher ran: $([ -f "$RAN_FILE" ] && echo yes || echo no))"; cat "$WORK/out" >&2
