@@ -2,6 +2,8 @@ name: guard
 on:
   pull_request:
     branches: [main]
+    # edited: a description edit re-runs the issue-link check (#838).
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 permissions:
@@ -56,24 +58,47 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
         run: |
           set -eu
+          case "$PR_COMMITS" in
+            ''|*[!0-9]*) echo "::error::the PR commit count is missing or not a number; cannot verify every commit"; exit 1;;
+          esac
           bad=0
+          checked=0
           re='^(feat|fix|docs|chore|refactor|test|build|ci|perf|revert|style)(\([a-z0-9._-]+\))?!?: .+'
           page=1
           while :; do
             batch="$(gh api "${COMMITS_URL}?per_page=100&page=${page}" --jq '.[] | @base64')"
             [ -z "$batch" ] && break
             for row in $batch; do
-              subj="$(printf '%s' "$row" | base64 -d | python3 -c 'import sys,json;print(json.load(sys.stdin)["commit"]["message"].splitlines()[0])')"
+              msg="$(printf '%s' "$row" | base64 -d | python3 -c 'import sys,json;print(json.load(sys.stdin)["commit"]["message"])')"
+              sha="$(printf '%s' "$row" | base64 -d | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"][:7])')"
+              subj="$(printf '%s\n' "$msg" | head -n 1)"
+              checked=$((checked+1))
+              # Any commit, merge commits included, may carry a session link (#838).
+              # Name the commit by SHA only: the log is public, so it must not echo
+              # a message that holds the link. The match is case-insensitive because
+              # hostnames are; it targets accidental links, not deliberate obfuscation.
+              if printf '%s\n' "$msg" | grep -qiE 'claude\.ai/code/session'; then
+                echo "::error::commit ${sha} links to an agent session; remove the link from its message"
+                bad=1
+                continue
+              fi
               case "$subj" in "Merge "*) continue;; esac
               if ! printf '%s' "$subj" | grep -qE "$re"; then
-                echo "::error::non-conventional commit subject: $subj"
+                echo "::error::commit ${sha} has a non-conventional subject; use type(scope): summary"
                 bad=1
               fi
             done
             page=$((page+1))
           done
+          # The commits API lists at most 250 commits. Fail closed when it returned fewer
+          # than the PR holds, so an unchecked commit cannot pass.
+          if [ "$checked" -ne "$PR_COMMITS" ]; then
+            echo "::error::checked ${checked} of ${PR_COMMITS} PR commits; the commits API cannot list them all. Split the PR."
+            bad=1
+          fi
           [ "$bad" -eq 0 ] || exit 1
 
   trivy:
@@ -127,6 +152,14 @@ jobs:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
         run: |
           set -eu
+          # A link to a private agent session does not belong in a public PR (#838).
+          # This runs before the no-issue exit, so the label cannot skip it. The match
+          # is case-insensitive because hostnames are; it targets accidental links,
+          # not deliberate obfuscation.
+          if printf '%s' "${PR_BODY}" | grep -qiE 'claude\.ai/code/session'; then
+            echo "FAIL: PR description links to an agent session; remove the link." >&2
+            exit 1
+          fi
           case " ${PR_LABELS} " in *" no-issue "*)
             echo "OK: no-issue label set"; exit 0 ;;
           esac
