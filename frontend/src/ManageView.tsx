@@ -22,7 +22,7 @@ type ManageRestoreResult = {
   verified: boolean
 }
 
-type ManageAction = 'rerun-playbook' | 'upgrade-in-place' | 'rotate' | 'teardown'
+type ManageAction = 'rerun-playbook' | 'upgrade-in-place' | 'teardown'
 
 type ManageActionResponse = {
   run_id: string
@@ -439,9 +439,7 @@ export default function ManageView() {
           ? 'Re-run playbook'
           : action === 'upgrade-in-place'
             ? 'Upgrade in place'
-            : action === 'rotate'
-              ? 'Rotate secret id'
-              : 'Teardown',
+            : 'Teardown',
       )
       setActiveRunLive(true)
     } catch (error) {
@@ -561,7 +559,7 @@ export default function ManageView() {
                 2. Review the verified env summary and repo provenance.
               </div>
               <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
-                3. Run a manage action (playbook, upgrade, rotate, teardown).
+                3. Run a manage action (playbook, upgrade, teardown).
               </div>
             </div>
           </section>
@@ -649,11 +647,10 @@ export default function ManageView() {
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 {(
                   [
                     ['upgrade-in-place', 'Upgrade in place'],
-                    ['rotate', 'Rotate secret id'],
                     ['teardown', 'Teardown'],
                   ] as const
                 ).map(([action, label]) => (

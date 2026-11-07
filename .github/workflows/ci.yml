@@ -30,6 +30,21 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y age rclone
       - run: |
           pytest
+      # Manage passes its own argv to dmf-env scripts. Run that argv against
+      # the current dmf-env, so a renamed flag or a new prompt fails here.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: dmfdeploy/dmf-env
+          path: dmf-env
+          persist-credentials: false
+      - name: Manage argv against the real dmf-env scripts
+        env:
+          DMF_TEST_DMF_ENV_REPO: ${{ github.workspace }}/dmf-env
+        # A skip would pass silently, so the step requires one passed test.
+        run: |
+          set -o pipefail
+          pytest -rs tests/test_manage_actions.py -k upgrade_in_place_script | tee "$RUNNER_TEMP/real-script.txt"
+          grep -q " 1 passed" "$RUNNER_TEMP/real-script.txt"
 
   launcher:
     runs-on: ubuntu-24.04

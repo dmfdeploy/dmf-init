@@ -4,7 +4,7 @@ import json
 import secrets
 import shutil
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from .backup import BackupManifestMeta, backup
 from .bootstrap_steps import CheckpointError, _iter_secret_strings
@@ -17,7 +17,22 @@ from .orchestrate import (
     SubprocessExecutor,
 )
 
-ManageAction = Literal["rerun-playbook", "upgrade-in-place", "rotate", "teardown"]
+# Actions the API once accepted and now refuses by name. A client or a saved
+# page that still sends one gets this message instead of a generic "unknown".
+_RETIRED_ACTIONS = {
+    "rotate": (
+        "the rotate action was retired: Manage no longer rotates the AppRole secret id"
+    ),
+}
+_ACTIONS = ("rerun-playbook", "upgrade-in-place", "teardown")
+
+
+def validate_action(action: str) -> None:
+    """Refuse a retired or unknown action by name, before the env is reserved."""
+    if action in _RETIRED_ACTIONS:
+        raise ManageError(_RETIRED_ACTIONS[action])
+    if action not in _ACTIONS:
+        raise ManageError(f"unknown manage action: {action}")
 
 
 def _manage_bin(data_root: Path, script_name: str) -> Path:
@@ -48,7 +63,7 @@ def _seed_run_redactions(run: BootstrapRun, data_root: Path, env_id: str) -> Non
 def build_action_argv(
     session: ManageSession,
     data_root: Path,
-    action: ManageAction,
+    action: str,
     params: dict[str, Any] | None,
 ) -> list[str]:
     if action == "rerun-playbook":
@@ -72,11 +87,13 @@ def build_action_argv(
             str(candidate),
         ]
     if action == "upgrade-in-place":
-        return [str(_manage_bin(data_root, "upgrade-in-place.sh")), session.env_id]
-    if action == "rotate":
-        return [str(_manage_bin(data_root, "rotate-approle-secret-id.sh")), session.env_id]
+        # The run has no TTY, so the script's own confirm prompt would end it
+        # before seed-bao; the operator confirms by starting the action.
+        return [str(_manage_bin(data_root, "upgrade-in-place.sh")), session.env_id, "--yes"]
     if action == "teardown":
         return [str(_manage_bin(data_root, "remove-env.sh")), "--yes", session.env_id]
+    if action in _RETIRED_ACTIONS:
+        raise ManageError(_RETIRED_ACTIONS[action])
     raise ManageError(f"unknown manage action: {action}")
 
 
@@ -113,7 +130,7 @@ def make_manage_checkpoint_fn(session: ManageSession, data_root: Path):
 def build_action_run(
     session: ManageSession,
     data_root: Path,
-    action: ManageAction,
+    action: str,
     params: dict[str, Any] | None,
     *,
     checkpoint_n: int,
