@@ -13,9 +13,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
         run: |
           set -eu
+          case "$PR_COMMITS" in
+            ''|*[!0-9]*) echo "::error::the PR commit count is missing or not a number; cannot verify every commit"; exit 1;;
+          esac
           missing=0
+          checked=0
           # Page through the PR commits and check each message for the trailer.
           page=1
           while :; do
@@ -26,6 +31,7 @@ jobs:
               msg="$(printf '%s' "$row" | base64 -d | \
                 python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["commit"]["message"]);print(d["sha"])')"
               sha="$(printf '%s\n' "$msg" | tail -n1)"
+              checked=$((checked+1))
               body="$(printf '%s\n' "$msg" | sed '$d')"
               if ! printf '%s\n' "$body" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
                 echo "::error::commit ${sha} missing Signed-off-by trailer (run: git commit -s)"
@@ -34,4 +40,10 @@ jobs:
             done
             page=$((page+1))
           done
+          # The commits API lists at most 250 commits. Fail closed when it returned fewer
+          # than the PR holds, so an unchecked commit cannot pass.
+          if [ "$checked" -ne "$PR_COMMITS" ]; then
+            echo "::error::checked ${checked} of ${PR_COMMITS} PR commits; the commits API cannot list them all. Split the PR."
+            missing=1
+          fi
           [ "$missing" -eq 0 ] || exit 1
