@@ -36,7 +36,7 @@ Architecture orientation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | Mode | Purpose |
 |---|---|
 | **Create new** | Collect inputs, render the env bundle, seal a downloadable passphrase-wrapped backup (checkpoint #1), then orchestrate the full sandbox bootstrap (pre-seed → seed → post-seed → configure → verify) with live logs and per-checkpoint downloads. |
-| **Manage** | Restore an env by uploading a previously downloaded encrypted backup (passphrase-unwrapped), then re-run playbooks, upgrade, rotate, or tear down, offering a fresh downloadable backup on any change. |
+| **Manage** | Restore an env by uploading a previously downloaded encrypted backup (passphrase-unwrapped), then re-run playbooks, upgrade, or tear down, offering a fresh downloadable backup on any change. |
 
 ## Design principles
 

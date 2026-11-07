@@ -71,10 +71,7 @@ from .manage import (
     build_env_doctor_run,
     run_manage_restore,
 )
-from .manage_actions import (
-    ManageAction,
-    build_action_run,
-)
+from .manage_actions import build_action_run, validate_action
 from .orchestrate import (
     SETUP_REQUEST_PAUSE_ID,
     BootstrapRun,
@@ -275,7 +272,8 @@ class ManageSessionRequest(BaseModel):
 
 class ManageActionStartRequest(BaseModel):
     session_id: str
-    action: ManageAction
+    # A plain string: the builder names a retired or unknown action in its error.
+    action: str
     params: dict[str, Any] | None = None
 
 
@@ -1579,6 +1577,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def manage_action_start(payload: ManageActionStartRequest) -> JSONResponse:
         session = _manage_session_or_404(payload.session_id)
+        try:
+            validate_action(payload.action)
+        except ManageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc),
+            ) from exc
         # P1-1: Reserve under lock; ANY pre-spawn failure clears.
         with app.state.bootstrap_lock:
             if session.env_id in app.state.active_runs:
