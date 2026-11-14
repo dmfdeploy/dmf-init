@@ -16,10 +16,9 @@ record shared-state changes in the pinned [Operator notes issue](https://github.
 
 ## Build and test
 
-- Python 3.12+: `pip install .[dev]`, then `ruff check .` and `pytest`. Backup
-  and restore tests need `age` and `rclone`.
-- Frontend: `cd frontend && npm ci && npm run build`.
-- Image: `docker build -t dmf-init:ci .` (run modes: `README.md`).
+Setup, every check that CI runs, and the pull request gates are in [CONTRIBUTING.md](CONTRIBUTING.md#develop-and-test). That
+section is the one copy of the commands. For run modes, see
+[README.md](README.md#run-it-appliance).
 
 ## Rules that are easy to miss
 
