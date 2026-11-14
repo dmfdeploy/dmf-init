@@ -7,7 +7,11 @@ responsibility first.
 
 ## What & why
 
-<!-- One paragraph: what this changes and the motivation. Link issues with #NNN. -->
+<!-- One paragraph: what this changes and the motivation. -->
+
+Refs dmfdeploy/dmfdeploy#NNN
+
+<!-- Replace NNN with the issue number. Keep the full dmfdeploy/dmfdeploy prefix: CI rejects a bare #NNN. For a change with no issue, ask a maintainer for the `no-issue` label. -->
 
 ## Checklist
 

@@ -17,11 +17,9 @@ All frontend code lives under `frontend/src/`. Build output goes to `src/dmf_ini
 
 ## Build commands
 
-```bash
-cd frontend && npm install          # install deps
-cd frontend && npm run build        # tsc && vite build (production)
-cd frontend && npx tsc --noEmit     # type-check only (included in build)
-```
+The install and build commands are in
+[CONTRIBUTING.md](../../../CONTRIBUTING.md#run-the-frontend-checks). The build
+runs `tsc` and then `vite build`, so it also type-checks.
 
 **TypeScript is strict**: `noUnusedLocals: true`, `noUnusedParameters: true`, `noFallthroughCasesInSwitch: true`. Every import, variable, and parameter must be used. Prefix unused params with `_` (e.g., `_cursor`) if they must exist for type compatibility.
 

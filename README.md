@@ -250,7 +250,7 @@ These fields are intentionally blank by default; fill them for *your* node.
 
 ## For contributors
 
-`AGENTS.md`, `CLAUDE.md` and `QWEN.md` hold instructions for AI coding agents that help maintain this repository. Human contributors can skip them and start with [CONTRIBUTING.md](CONTRIBUTING.md).
+For setup, the test commands, the git hooks and what a pull request needs, see [CONTRIBUTING.md](CONTRIBUTING.md). `AGENTS.md`, `CLAUDE.md` and `QWEN.md` hold instructions for AI coding agents that help maintain this repository.
 
 ## License
 
