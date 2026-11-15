@@ -195,7 +195,7 @@ CI checks each of these.
   vulnerability scans.
 
 Also leave agent session links out of commit messages and the PR body. The
-`guard` workflow rejects one known session-link format. It can't recognise
+`guard` workflow rejects one known session-link format. It can't recognize
 every tool's links, so reviewers look for them too.
 
 ## Developer Certificate of Origin (DCO)
