@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass
@@ -31,15 +32,25 @@ def _last_entry(path: Path) -> dict | None:
 
 
 def _write_anchor(directory: Path, entry: dict) -> None:
-    """Replace the anchor atomically with the last entry about to be trimmed."""
+    """Replace the anchor atomically with the last entry about to be trimmed.
+
+    The old anchor stays in place unless the new one was written in full.
+    """
     tmp = directory / (ANCHOR_NAME + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    data = json.dumps({"seq": entry["seq"], "hash": entry["hash"]}).encode()
     try:
-        os.write(fd, json.dumps({"seq": entry["seq"], "hash": entry["hash"]}).encode())
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(tmp, directory / ANCHOR_NAME)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            if os.write(fd, data) != len(data):
+                raise OSError("short write")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, directory / ANCHOR_NAME)
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
     fsync_dir(directory)
 
 
