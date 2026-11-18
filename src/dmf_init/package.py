@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .backup import validate_env_id
+from .ca import LocalCaError, ca_info, ca_paths
 
 
 class PackageError(RuntimeError):
@@ -51,6 +52,20 @@ def _readme(
 ) -> str:
     hosts_entries = "\n".join(hosts_payload.get("entries") or ["(unavailable at package time)"])
     ca_filename = ca_payload.get("filename", "dmf-ca.crt")
+    fingerprint = ca_payload.get("fingerprint_sha256")
+    fingerprint_note = (
+        f"""
+
+SHA-256 fingerprint of the CA certificate. Compare it with what your device
+shows before you trust the CA:
+
+    {fingerprint}
+
+The CA's private key stays with the environment. It is inside the encrypted
+backup (`{artifact_name}`), so the passphrase protects it."""
+        if fingerprint
+        else ""
+    )
     ca_section = (
         f"""The cluster's local CA certificate is included as `{ca_filename}`.
 Trusting it is strongly recommended: without it every cluster service shows
@@ -69,7 +84,7 @@ silently. Install per OS:
                     bounds the blast radius)
 
 Restart the browser afterwards. To remove later, delete the 'DMF Local CA'
-entry from the certificate store."""
+entry from the certificate store.{fingerprint_note}"""
         if ca_payload.get("present")
         else "The CA certificate was not reachable when this package was "
         "assembled. Fetch it later from a Manage session, or re-download "
@@ -109,6 +124,29 @@ the cluster ({hosts_payload.get("node_ip") or "node IP unavailable"}):
 """
 
 
+def _prefer_local_ca(data_root: Path, env_id: str, ca_payload: dict[str, Any]) -> dict[str, Any]:
+    """Use the CA kept in the env directory when there is one.
+
+    Installs made before the workstation held the CA have no local copy and
+    keep the payload fetched from the cluster.
+    """
+    env_root = data_root / "envs" / env_id
+    cert_path, _ = ca_paths(env_root)
+    if not cert_path.is_file():
+        return ca_payload
+    try:
+        info = ca_info(env_root)
+        pem = cert_path.read_text(encoding="utf-8").strip()
+    except (LocalCaError, OSError):
+        return ca_payload
+    return {
+        **ca_payload,
+        "pem": pem,
+        "present": True,
+        "fingerprint_sha256": info.fingerprint_sha256,
+    }
+
+
 def build_package(
     data_root: Path,
     env_id: str,
@@ -117,6 +155,7 @@ def build_package(
 ) -> PackageResult:
     artifact_path = find_latest_artifact(data_root, env_id)
     artifact_bytes = artifact_path.read_bytes()
+    ca_payload = _prefer_local_ca(data_root, env_id, ca_payload)
     ca_pem = str(ca_payload.get("pem") or "")
     ca_filename = str(ca_payload.get("filename") or "dmf-ca.crt")
     readme = _readme(env_id, artifact_path.name, ca_payload, hosts_payload)

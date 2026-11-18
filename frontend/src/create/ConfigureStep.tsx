@@ -7,12 +7,15 @@ type OperatorForm = {
   display: string
 }
 
+type NetworkMode = 'lan' | 'public'
+
 type SandboxForm = {
   label: string
   nodeIp: string
   ansibleUser: string
   iface: string
   sshPrivateKey: string
+  networkMode: NetworkMode
 }
 
 type ConfigureStepProps = {
@@ -28,7 +31,21 @@ const defaultSandbox: SandboxForm = {
   ansibleUser: '',
   iface: '',
   sshPrivateKey: '',
+  networkMode: 'lan',
 }
+
+const networkModes: { value: NetworkMode; label: string; description: string }[] = [
+  {
+    value: 'lan',
+    label: 'LAN',
+    description: 'LAN or air-gapped; approve from devices on the same network.',
+  },
+  {
+    value: 'public',
+    label: 'Public',
+    description: 'A VPS with a fixed public IP.',
+  },
+]
 
 const defaultOperator: OperatorForm = {
   username: 'marty-mcfly',
@@ -171,6 +188,37 @@ export function ConfigureStep({ onSubmit, onPageChange, busy, error }: Configure
                 />
               </Field>
             </div>
+            <fieldset className="grid gap-2">
+              <legend className="text-sm font-medium text-text">Network mode</legend>
+              {networkModes.map((mode) => (
+                <label
+                  key={mode.value}
+                  className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-panel/60 p-3 text-sm"
+                >
+                  <input
+                    type="radio"
+                    name="network-mode"
+                    className="mt-1"
+                    checked={sandbox.networkMode === mode.value}
+                    onChange={() => setSandbox((p) => ({ ...p, networkMode: mode.value }))}
+                  />
+                  <span>
+                    <span className="font-medium text-text">{mode.label}</span>
+                    <span className="block text-muted">{mode.description}</span>
+                  </span>
+                </label>
+              ))}
+              {sandbox.networkMode === 'public' && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
+                  If this server loses its IP address, the sandbox is lost: passkeys stop working
+                  and the way back is a rebuild.
+                </div>
+              )}
+              <p className="text-sm text-muted">
+                This sandbox is an unsafe, ephemeral learning environment. Don&apos;t use it for
+                anything that matters.
+              </p>
+            </fieldset>
             <Field label="SSH private key" hint="Paste or load a local file.">
               <TextArea
                 value={sandbox.sshPrivateKey}
@@ -232,6 +280,8 @@ export function ConfigureStep({ onSubmit, onPageChange, busy, error }: Configure
                 {sandbox.nodeIp ? ` · Node IP: ${sandbox.nodeIp}` : ''}
                 <br />
                 Ansible user: {sandbox.ansibleUser} · Interface: {sandbox.iface}
+                <br />
+                Network mode: {sandbox.networkMode === 'lan' ? 'LAN' : 'Public'}
               </div>
             </div>
             <div className="rounded-lg border border-border bg-panel/60 p-3">
@@ -284,4 +334,4 @@ export function ConfigureStep({ onSubmit, onPageChange, busy, error }: Configure
   )
 }
 
-export type { OperatorForm, SandboxForm }
+export type { NetworkMode, OperatorForm, SandboxForm }

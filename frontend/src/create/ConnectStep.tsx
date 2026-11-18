@@ -307,6 +307,14 @@ function CaCertStation({
             </button>
             <span className="text-xs text-muted">{payload.filename}</span>
           </div>
+          {payload.fingerprint_sha256 && (
+            <div className="min-w-0 text-xs text-muted">
+              SHA-256 fingerprint
+              <code className="mt-1 block break-all rounded bg-white/10 px-1.5 py-1 text-text">
+                {payload.fingerprint_sha256}
+              </code>
+            </div>
+          )}
           <CaInstall payload={payload} />
         </>
       ) : (
