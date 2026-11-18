@@ -441,3 +441,21 @@ def test_anchor_that_does_not_match_the_overlapping_entry_is_tamper(tmp_path, mo
     assert (result.status, result.seq) == (Status.TAMPER, data["seq"])
     with pytest.raises(AuditWriteError):
         log.require_written(checkin(99))
+
+
+def test_interrupted_trim_with_a_damaged_overlapping_segment_deletes_nothing(
+    tmp_path, monkeypatch
+):
+    from dmf_init.audit.retention import finish_interrupted_trim
+
+    log = interrupt_trim(tmp_path, monkeypatch, earlier_trim=False)
+    leftover = segments(tmp_path)[0][1]
+    leftover.write_text(leftover.read_text().replace('"r0"', '"r7"'))  # not the anchor entry
+    before = listing(tmp_path)
+    assert finish_interrupted_trim(tmp_path) is False
+    assert listing(tmp_path) == before
+    with pytest.raises(AuditWriteError):
+        log.require_written(checkin(99))
+    assert verify(tmp_path).status is Status.TAMPER
+    assert log.try_write(unseal()) is True  # the unseal path still appends
+    assert leftover.exists()
