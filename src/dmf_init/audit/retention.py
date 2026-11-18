@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .segment import ANCHOR_NAME, fsync_dir, read_anchor, read_lines, segments
+from .verify import verify
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,9 @@ def finish_interrupted_trim(directory: Path) -> bool:
     """Delete the oldest segment if an earlier trim wrote its anchor but did not delete it.
 
     That is the case when the segment's last entry is the anchor entry (same seq and
-    hash). A segment whose entry at the anchor's seq has a different hash is left alone
-    for `verify` to report. Returns True if a segment was deleted.
+    hash) and the whole chain verifies. Anything else is left alone for `verify` to
+    report, so a damaged segment is never deleted as housekeeping. Returns True if a
+    segment was deleted.
     """
     anchor = read_anchor(directory)
     found = segments(directory)
@@ -68,6 +70,8 @@ def finish_interrupted_trim(directory: Path) -> bool:
     oldest = found[0][1]
     last = _last_entry(oldest)
     if last is None or (last.get("seq"), last.get("hash")) != (anchor["seq"], anchor.get("hash")):
+        return False
+    if not verify(directory).intact:
         return False
     oldest.unlink()
     fsync_dir(directory)
