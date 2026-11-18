@@ -265,3 +265,44 @@ def test_quiet_record_is_trimmed_by_age_through_monthly_segments(tmp_path):
         newest = json.loads(path.read_text().splitlines()[-1])["time"]
         assert datetime.fromisoformat(newest) >= cutoff
     assert verify(tmp_path).status is Status.TRIMMED
+
+
+def short_anchor_write(monkeypatch):
+    """Make only the anchor write come up short; entry writes behave normally."""
+    real = os.write
+
+    def write(fd, data):
+        return real(fd, data[:5]) if data.startswith(b'{"seq"') else real(fd, data)
+
+    monkeypatch.setattr(os, "write", write)
+
+
+def snapshot(path: Path) -> dict:
+    return {p.name: p.read_bytes() for p in sorted(path.iterdir())}
+
+
+@pytest.mark.parametrize("earlier_trim", [False, True])
+def test_short_anchor_write_leaves_the_record_unchanged(tmp_path, monkeypatch, earlier_trim):
+    from dmf_init.audit.retention import trim
+
+    filled(tmp_path, 40, Retention(segment_bytes=300, max_bytes=10**9))
+    if earlier_trim:
+        assert trim(tmp_path, Retention(max_bytes=4000)) > 0
+        assert (tmp_path / ANCHOR_NAME).exists()
+    before = snapshot(tmp_path)
+    short_anchor_write(monkeypatch)
+    with pytest.raises(OSError, match="short write"):
+        trim(tmp_path, Retention(max_bytes=1))
+    assert snapshot(tmp_path) == before  # no segment lost, anchor unchanged, no temp file
+    assert verify(tmp_path).status is (Status.TRIMMED if earlier_trim else Status.OK)
+
+
+def test_append_succeeds_when_the_trim_after_a_roll_fails(tmp_path, monkeypatch):
+    log = filled(tmp_path, 10, Retention(segment_bytes=300, max_bytes=500))
+    short_anchor_write(monkeypatch)
+    for n in range(20):
+        log.require_written(checkin(n))  # rolls several times; each trim fails
+    assert not (tmp_path / (ANCHOR_NAME + ".tmp")).exists()
+    monkeypatch.undo()
+    assert verify(tmp_path).intact
+    assert list(tmp_path.glob("segment-*"))[0].exists()
