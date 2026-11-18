@@ -88,6 +88,7 @@ export type CaCertPayload = {
   filename: string
   pem: string
   note: string
+  fingerprint_sha256?: string
   requirement_note?: string
 }
 

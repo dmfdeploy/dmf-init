@@ -11,10 +11,12 @@ import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from .backup import BackupManifestMeta, BackupResult, backup
+from .ca import create_local_ca
 from .redaction import redact_text
 from .yaml_utils import parse_yaml_scalar_anywhere, rewrite_yaml_scalar, yaml_scalar
 
@@ -37,6 +39,7 @@ class SandboxInputs(BaseModel):
     ansible_user: str
     iface: str
     ssh_private_key: str = Field(min_length=1)
+    network_mode: Literal["lan", "public"] = "lan"
 
 
 class CreateNewRenderRequest(BaseModel):
@@ -117,6 +120,7 @@ def _answers_file_contents(request: CreateNewRenderRequest, ssh_key_path: Path) 
         f"  node_ip: {yaml_scalar(sandbox.node_ip)}",
         f"  ansible_user: {yaml_scalar(sandbox.ansible_user)}",
         f"  iface: {yaml_scalar(sandbox.iface)}",
+        f"  network_mode: {yaml_scalar(sandbox.network_mode)}",
         f"  ssh_private_key_path: {yaml_scalar(str(ssh_key_path))}",
     ]
     return "\n".join(lines) + "\n"
@@ -140,6 +144,40 @@ def _render_base_domain(data_root: Path, env_id: str) -> str | None:
         parse_yaml_scalar_anywhere(group_vars, "dmf_sandbox_base_domain")
         or parse_yaml_scalar_anywhere(group_vars, "cert_manager_cluster_domain")
     )
+
+
+def _install_local_ca(data_root: Path, env_id: str, network_mode: str) -> None:
+    """Create the install's CA and tell dmf-infra where to find it.
+
+    Runs after the wizard has rendered the env, because the CA's permitted
+    names come from the rendered inventory.
+    """
+    env_root = _sandbox_env_dir(data_root, env_id)
+    group_vars = env_root / "inventory" / "group_vars" / "all"
+    base_domain = _render_base_domain(data_root, env_id)
+    page_name = parse_yaml_scalar_anywhere(group_vars, "dmf_approval_page_name")
+    rendered_mode = parse_yaml_scalar_anywhere(group_vars, "dmf_network_mode")
+    if not page_name:
+        raise CreateNewError(
+            "The rendered inventory has no dmf_approval_page_name. "
+            "The dmf-env checkout must include dmfdeploy/dmf-env#43."
+        )
+    if not base_domain:
+        raise CreateNewError("The rendered inventory has no dmf_sandbox_base_domain.")
+    if rendered_mode and rendered_mode != network_mode:
+        raise CreateNewError(
+            f"dmf-env rendered network mode {rendered_mode!r}, but the request chose "
+            f"{network_mode!r}."
+        )
+    info = create_local_ca(env_root, [base_domain, page_name])
+    lines = [
+        "dmf_local_ca_import: true",
+        'dmf_local_ca_cert_file: "{{ inventory_dir }}/../ca/ca.crt"',
+        'dmf_local_ca_key_file: "{{ inventory_dir }}/../ca/ca.key"',
+        f"dmf_local_ca_fingerprint_sha256: {yaml_scalar(info.fingerprint_sha256)}",
+        f"dmf_local_ca_not_after: {yaml_scalar(info.not_after)}",
+    ]
+    _write_file(group_vars / "local_ca.yml", "\n".join(lines), mode=0o644)
 
 
 def _materialize_sandbox_ssh_artifacts(data_root: Path, env_id: str, ssh_private_key: str) -> Path:
@@ -178,6 +216,7 @@ def _finalize_sandbox_render_artifacts(
         "ansible_ssh_private_key_file",
         str(private_key_path),
     )
+    _install_local_ca(data_root, env_id, request.sandbox.network_mode)
     shutil.rmtree(work_dir / "ssh", ignore_errors=True)
     return private_key_path
 

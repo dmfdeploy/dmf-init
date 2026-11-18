@@ -177,6 +177,7 @@ export default function App() {
             ansible_user: sandbox.ansibleUser,
             iface: sandbox.iface,
             ssh_private_key: sandbox.sshPrivateKey,
+            network_mode: sandbox.networkMode,
           },
         },
         (line) => setRenderLogs((prev) => [...prev, line]),

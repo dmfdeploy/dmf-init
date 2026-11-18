@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .backup import BackupManifestMeta, backup
+from .ca import LocalCaError, ca_info, ca_paths
 from .orchestrate import BootstrapRun, CheckpointStep, CommandStep, PauseStep, Step
 from .repos import (
     DEFAULT_REFS,
@@ -460,6 +461,7 @@ def build_ca_cert_payload(ctx: BootstrapContext) -> dict[str, Any]:
         "pem": "",
         "present": False,
         "note": "",
+        "fingerprint_sha256": "",
         "requirement_note": (
             "Trusting the DMF Local CA is strongly recommended: without it every "
             "cluster service shows certificate warnings, and on desktop "
@@ -473,6 +475,19 @@ def build_ca_cert_payload(ctx: BootstrapContext) -> dict[str, Any]:
             "CA' entry from your certificate store."
         ),
     }
+    # Installs made by this version keep their CA on the workstation. Only
+    # older installs, which created it in the cluster, need the SSH fetch.
+    local_cert_path, _ = ca_paths(ctx.env_dir)
+    if local_cert_path.is_file():
+        try:
+            info = ca_info(ctx.env_dir)
+            payload["pem"] = local_cert_path.read_text(encoding="utf-8").strip()
+        except (LocalCaError, OSError) as exc:
+            payload["note"] = f"could not read the local CA certificate: {exc}"
+            return payload
+        payload["fingerprint_sha256"] = info.fingerprint_sha256
+        payload["present"] = True
+        return payload
     try:
         proc = _run_openbao_ssh(
             ctx,
