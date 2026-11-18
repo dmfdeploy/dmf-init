@@ -14,11 +14,11 @@ from . import retention
 from .retention import Retention
 from .schema import validate
 from .segment import (
+    ANCHOR_NAME,
     GENESIS_PREV,
     canonical,
     entry_hash,
     fsync_dir,
-    read_anchor,
     read_lines,
     segment_name,
     segments,
@@ -142,8 +142,11 @@ class AuditLog:
                     return entry["seq"], entry["hash"]
                 except (ValueError, KeyError, TypeError) as exc:
                     raise AuditWriteError(f"{path.name} ends in an unreadable entry") from exc
-        anchor = read_anchor(self.directory)
-        return (anchor["seq"], anchor["hash"]) if anchor else None
+        if (self.directory / ANCHOR_NAME).exists():
+            # Trimming never removes the newest segment, so an anchor with no segment
+            # means the record was deleted. Do not resume from the anchor alone.
+            raise AuditWriteError("the anchor exists but every segment is missing")
+        return None
 
     def _write(self, path: Path, data: bytes, *, created: bool) -> None:
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
