@@ -4,6 +4,15 @@ from __future__ import annotations
 
 import re
 
+from .segment import canonical
+
+# Bounds on what one entry can hold. Values such as `claimed` come from devices, so
+# they are untrusted input, and a segment never shrinks below its newest entry.
+MAX_STRING = 1024  # characters per string, including `claimed` keys and list items
+MAX_CLAIMED_KEYS = 32
+MAX_LIST_ITEMS = 16
+MAX_ENTRY_BYTES = 8192  # canonical JSON of the whole entry, as stored
+
 COMMON = ("actor", "role", "request_id", "reason")
 
 # Each event lists the fields it accepts. Anything else is rejected. The chain writes
@@ -40,6 +49,8 @@ class AuditSchemaError(ValueError):
 
 
 def _check_text(where: str, text: str) -> None:
+    if len(text) > MAX_STRING:
+        raise AuditSchemaError(f"{where}: longer than {MAX_STRING} characters")
     if "biometric" in text.lower():
         raise AuditSchemaError(f"{where}: the record never says 'biometric'")
     if _TOKEN.search(text):
@@ -57,10 +68,14 @@ def _check_field(name: str, value: object) -> None:
     if name == "claimed":
         if not isinstance(value, dict):
             raise AuditSchemaError("claimed: must be an object")
+        if len(value) > MAX_CLAIMED_KEYS:
+            raise AuditSchemaError(f"claimed: more than {MAX_CLAIMED_KEYS} keys")
         for key, item in value.items():
             _check_text(f"claimed key {key!r}", str(key))
             _check_scalar(f"claimed.{key}", item)
     elif isinstance(value, list):
+        if len(value) > MAX_LIST_ITEMS:
+            raise AuditSchemaError(f"{name}: more than {MAX_LIST_ITEMS} items")
         for item in value:
             _check_scalar(name, item)
     else:
@@ -89,4 +104,6 @@ def validate(entry: dict) -> dict:
         linked = "previous_seq" in entry and "previous_hash" in entry
         if linked == bool(entry.get("unlinked")):
             raise AuditSchemaError("restore: give previous_seq and previous_hash, or unlinked")
+    if len(canonical(entry)) > MAX_ENTRY_BYTES:
+        raise AuditSchemaError(f"{event}: entry is larger than {MAX_ENTRY_BYTES} bytes")
     return dict(entry)

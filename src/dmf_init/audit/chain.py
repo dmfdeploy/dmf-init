@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import retention
 from .retention import Retention
-from .schema import validate
+from .schema import MAX_ENTRY_BYTES, AuditSchemaError, validate
 from .segment import (
     ANCHOR_NAME,
     GENESIS_PREV,
@@ -115,7 +115,10 @@ class AuditLog:
             entries.append(self._seal({"event": "genesis"}, tail))
             tail = (entries[0]["seq"], entries[0]["hash"])
         entries.append(self._seal(fields, tail))
-        data = b"".join(canonical(entry) + b"\n" for entry in entries)
+        lines = [canonical(entry) for entry in entries]
+        if any(len(line) > MAX_ENTRY_BYTES for line in lines):
+            raise AuditSchemaError(f"entry is larger than {MAX_ENTRY_BYTES} bytes once sealed")
+        data = b"".join(line + b"\n" for line in lines)
 
         number, path = found[-1] if found else (1, self.directory / segment_name(1))
         rolled = False
