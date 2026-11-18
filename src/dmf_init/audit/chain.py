@@ -23,6 +23,7 @@ from .segment import (
     segment_name,
     segments,
 )
+from .verify import verify
 
 
 class AuditWriteError(Exception):
@@ -65,11 +66,12 @@ class AuditLog:
         """Append the entry and make it durable, or raise.
 
         Use this before any action that must not happen unrecorded, such as
-        creating a root token. Returns the stored entry.
+        creating a root token. The whole retained chain is verified first; if it is
+        broken, nothing is appended and the call raises. Returns the stored entry.
         """
         checked = validate(entry)
         try:
-            return self._append(checked)
+            return self._append(checked, check_integrity=True)
         except OSError as exc:
             raise AuditWriteError(f"audit record not written: {exc}") from exc
 
@@ -77,27 +79,34 @@ class AuditLog:
         """Append the entry if possible. Never raises; a failure is counted in `dropped`.
 
         Use this on the unseal path, where a full or broken record must not block
-        recovery.
+        recovery. It skips the integrity check that `require_written` makes.
         """
         try:
-            self.require_written(entry)
+            self._append(validate(entry), check_integrity=False)
         except Exception:
             self.dropped += 1
             return False
         return True
 
-    def _append(self, fields: dict) -> dict:
+    def _append(self, fields: dict, *, check_integrity: bool) -> dict:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock_fd = os.open(self.directory / ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            return self._append_locked(fields)
+            return self._append_locked(fields, check_integrity)
         finally:
             os.close(lock_fd)  # closing releases the lock
 
-    def _append_locked(self, fields: dict) -> dict:
+    def _append_locked(self, fields: dict, check_integrity: bool) -> dict:
         found = segments(self.directory)
         tail = self._tail(found)
+        if check_integrity:
+            result = verify(self.directory)
+            if not result.intact:
+                raise AuditWriteError(
+                    f"the record is broken ({result.status.value} at seq {result.seq}); "
+                    "no gated write until it is restored or rebuilt"
+                )
         entries = []
         if tail is None:
             tail = (0, GENESIS_PREV)

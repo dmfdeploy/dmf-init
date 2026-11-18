@@ -343,3 +343,42 @@ def test_empty_directory_without_an_anchor_starts_a_fresh_chain(tmp_path):
     log = AuditLog(tmp_path / "new")
     log.require_written(checkin(1))
     assert verify(tmp_path / "new").status is Status.OK
+
+
+def listing(path: Path) -> dict:
+    return {p.name: p.stat().st_size for _, p in segments(path)}
+
+
+def unseal() -> dict:
+    return {"event": "unseal", "actor": "operator"}
+
+
+def test_gate_refuses_after_a_retained_middle_segment_is_deleted(tmp_path):
+    log = filled(tmp_path, 12, Retention(segment_bytes=300))
+    found = segments(tmp_path)
+    assert len(found) >= 3 and not (tmp_path / ANCHOR_NAME).exists()
+    found[1][1].unlink()
+    before = listing(tmp_path)
+    with pytest.raises(AuditWriteError, match="gap"):
+        log.require_written(checkin(99))
+    assert listing(tmp_path) == before
+    assert log.try_write(unseal()) is True  # a broken record never blocks an unseal
+    assert log.dropped == 0
+
+
+def test_gate_refuses_after_a_non_tail_entry_is_edited(tmp_path):
+    log = filled(tmp_path, 12, Retention(segment_bytes=300))
+    first = segments(tmp_path)[0][1]
+    first.write_text(first.read_text().replace('"r0"', '"r7"'))
+    before = listing(tmp_path)
+    with pytest.raises(AuditWriteError, match="tamper"):
+        log.require_written(checkin(99))
+    assert listing(tmp_path) == before
+    assert log.try_write(unseal()) is True
+
+
+def test_gate_still_accepts_writes_on_a_trimmed_chain(tmp_path):
+    log = filled(tmp_path, 60, SMALL)
+    assert verify(tmp_path).status is Status.TRIMMED
+    log.require_written(checkin(99))
+    assert verify(tmp_path).intact
