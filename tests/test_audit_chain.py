@@ -382,3 +382,62 @@ def test_gate_still_accepts_writes_on_a_trimmed_chain(tmp_path):
     assert verify(tmp_path).status is Status.TRIMMED
     log.require_written(checkin(99))
     assert verify(tmp_path).intact
+
+
+def interrupt_trim(path: Path, monkeypatch, earlier_trim: bool) -> AuditLog:
+    """Leave the record as a crash between the anchor write and the unlink would."""
+    from dmf_init.audit.retention import trim
+
+    log = filled(path, 60, Retention(segment_bytes=300, max_bytes=10**9))
+    if earlier_trim:
+        assert trim(path, Retention(max_bytes=4000)) > 0
+    real = Path.unlink
+    failed = []
+
+    def unlink_once(self, *args, **kwargs):
+        if self.name.startswith("segment-") and not failed:
+            failed.append(self)
+            raise OSError("unlink failed")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink_once)
+    with pytest.raises(OSError, match="unlink failed"):
+        trim(path, Retention(max_bytes=1))
+    assert failed[0].exists()
+    return log
+
+
+@pytest.mark.parametrize("earlier_trim", [False, True])
+def test_interrupted_trim_is_intact_and_finished_by_the_next_write(
+    tmp_path, monkeypatch, earlier_trim
+):
+    log = interrupt_trim(tmp_path, monkeypatch, earlier_trim)
+    leftover = segments(tmp_path)[0][1]
+    assert verify(tmp_path).intact  # the anchor overlaps a retained segment
+    log.require_written(checkin(99))
+    assert not leftover.exists()
+    assert verify(tmp_path).status is Status.TRIMMED
+
+
+def test_interrupted_trim_is_finished_by_the_unseal_path_too(tmp_path, monkeypatch):
+    log = interrupt_trim(tmp_path, monkeypatch, earlier_trim=False)
+    leftover = segments(tmp_path)[0][1]
+    assert log.try_write(unseal()) is True
+    assert not leftover.exists()
+    assert verify(tmp_path).status is Status.TRIMMED
+
+
+def test_anchor_that_does_not_match_the_overlapping_entry_is_tamper(tmp_path, monkeypatch):
+    from dmf_init.audit.retention import finish_interrupted_trim
+
+    log = interrupt_trim(tmp_path, monkeypatch, earlier_trim=False)
+    anchor = tmp_path / ANCHOR_NAME
+    data = json.loads(anchor.read_text())
+    anchor.write_text(json.dumps({"seq": data["seq"], "hash": "0" * 64}))
+    before = listing(tmp_path)
+    assert finish_interrupted_trim(tmp_path) is False
+    assert listing(tmp_path) == before
+    result = verify(tmp_path)
+    assert (result.status, result.seq) == (Status.TAMPER, data["seq"])
+    with pytest.raises(AuditWriteError):
+        log.require_written(checkin(99))
