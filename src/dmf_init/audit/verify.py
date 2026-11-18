@@ -48,6 +48,8 @@ def verify(directory: Path) -> VerifyResult:
     expected: int | None = None
     prev = GENESIS_PREV
     count = 0
+    overlap = False
+    anchor_found = False
 
     for _, path in segments(directory):
         for line in read_lines(path):
@@ -58,9 +60,19 @@ def verify(directory: Path) -> VerifyResult:
                 return VerifyResult(Status.TAMPER, expected, count, f"{path.name}: unreadable")
             if entry_hash(entry) != claimed_hash:
                 return VerifyResult(Status.TAMPER, seq, count, "hash does not match the entry")
+            if anchor and seq == anchor["seq"] and claimed_hash != anchor.get("hash"):
+                return VerifyResult(Status.TAMPER, seq, count, "entry does not match the anchor")
+            if anchor and seq == anchor["seq"]:
+                anchor_found = True
             if expected is None:
+                overlap = bool(anchor) and seq <= anchor["seq"]
                 if seq == 1:
                     pass
+                elif overlap:
+                    # A trim was interrupted after it wrote the anchor. The start cannot
+                    # be checked against an earlier anchor, but the anchor entry must follow.
+                    status = Status.TRIMMED
+                    prev = claimed_prev
                 elif anchor and anchor["seq"] == seq - 1 and anchor.get("hash") == claimed_prev:
                     status = Status.TRIMMED
                     prev = claimed_prev
@@ -74,6 +86,8 @@ def verify(directory: Path) -> VerifyResult:
             prev = claimed_hash
             expected = seq + 1
             count += 1
+    if overlap and not anchor_found:
+        return VerifyResult(Status.TAMPER, anchor["seq"], count, "the anchor entry is missing")
     return VerifyResult(status, None, count)
 
 

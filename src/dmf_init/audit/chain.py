@@ -98,6 +98,8 @@ class AuditLog:
             os.close(lock_fd)  # closing releases the lock
 
     def _append_locked(self, fields: dict, check_integrity: bool) -> dict:
+        with contextlib.suppress(OSError):
+            retention.finish_interrupted_trim(self.directory)
         found = segments(self.directory)
         tail = self._tail(found)
         if check_integrity:

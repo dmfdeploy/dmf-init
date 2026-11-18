@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .segment import ANCHOR_NAME, fsync_dir, read_lines, segments
+from .segment import ANCHOR_NAME, fsync_dir, read_anchor, read_lines, segments
 
 
 @dataclass(frozen=True)
@@ -54,13 +54,33 @@ def _write_anchor(directory: Path, entry: dict) -> None:
     fsync_dir(directory)
 
 
+def finish_interrupted_trim(directory: Path) -> bool:
+    """Delete the oldest segment if an earlier trim wrote its anchor but did not delete it.
+
+    That is the case when the segment's last entry is the anchor entry (same seq and
+    hash). A segment whose entry at the anchor's seq has a different hash is left alone
+    for `verify` to report. Returns True if a segment was deleted.
+    """
+    anchor = read_anchor(directory)
+    found = segments(directory)
+    if anchor is None or len(found) < 2:
+        return False
+    oldest = found[0][1]
+    last = _last_entry(oldest)
+    if last is None or (last.get("seq"), last.get("hash")) != (anchor["seq"], anchor.get("hash")):
+        return False
+    oldest.unlink()
+    fsync_dir(directory)
+    return True
+
+
 def trim(directory: Path, policy: Retention, now: datetime | None = None) -> int:
     """Delete old segments while the record is over the size cap or too old.
 
     The newest segment is never deleted. Returns the number of segments removed.
     """
     now = now or datetime.now(UTC)
-    removed = 0
+    removed = int(finish_interrupted_trim(directory))
     while True:
         found = segments(directory)
         if len(found) < 2:
