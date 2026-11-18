@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .segment import GENESIS_PREV, entry_hash, read_anchor, read_entries, read_lines, segments
+from .segment import (
+    ANCHOR_NAME,
+    GENESIS_PREV,
+    entry_hash,
+    read_anchor,
+    read_entries,
+    read_lines,
+    segments,
+)
 
 
 class Status(Enum):
@@ -32,6 +40,10 @@ class VerifyResult:
 def verify(directory: Path) -> VerifyResult:
     directory = Path(directory)
     anchor = read_anchor(directory)
+    if not segments(directory) and (directory / ANCHOR_NAME).exists():
+        # Trimming never removes the newest segment, so this means the record was deleted.
+        seq = anchor["seq"] + 1 if anchor else None
+        return VerifyResult(Status.GAP, seq, 0, "every segment is missing")
     status = Status.OK
     expected: int | None = None
     prev = GENESIS_PREV

@@ -306,3 +306,40 @@ def test_append_succeeds_when_the_trim_after_a_roll_fails(tmp_path, monkeypatch)
     monkeypatch.undo()
     assert verify(tmp_path).intact
     assert list(tmp_path.glob("segment-*"))[0].exists()
+
+
+def trimmed_then_deleted(path: Path) -> AuditLog:
+    log = filled(path, 60, SMALL)
+    assert verify(path).status is Status.TRIMMED
+    for _, segment in segments(path):
+        segment.unlink()
+    return log
+
+
+def test_deleting_every_segment_is_a_gap_not_ok(tmp_path):
+    trimmed_then_deleted(tmp_path)
+    result = verify(tmp_path)
+    assert result.status is Status.GAP
+    assert result.seq is not None
+
+
+def test_gate_refuses_to_resume_from_an_anchor_alone(tmp_path):
+    log = trimmed_then_deleted(tmp_path)
+    with pytest.raises(AuditWriteError):
+        log.require_written(checkin(1))
+    assert not list(tmp_path.glob("segment-*"))
+    assert verify(tmp_path).status is Status.GAP
+
+
+def test_unseal_path_counts_a_drop_when_the_record_was_deleted(tmp_path):
+    log = trimmed_then_deleted(tmp_path)
+    assert log.try_write({"event": "unseal", "actor": "operator"}) is False
+    assert log.dropped == 1
+    assert not list(tmp_path.glob("segment-*"))
+
+
+def test_empty_directory_without_an_anchor_starts_a_fresh_chain(tmp_path):
+    assert verify(tmp_path).status is Status.OK
+    log = AuditLog(tmp_path / "new")
+    log.require_written(checkin(1))
+    assert verify(tmp_path / "new").status is Status.OK
