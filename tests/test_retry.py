@@ -23,7 +23,7 @@ def _real_build_steps() -> list[Step]:
     """Subset of build_bootstrap_steps matching the real graph order.
 
     Real order: pre-seed, checkpoint-2, checkpoint-2-export-gate, unseal,
-    seed-bao, post-seed, workstation, initial-passkey, setup-request,
+    post-seed, workstation, initial-passkey, setup-request,
     configure, post-configure passkey, verify, checkpoint-3.
     """
     return [
@@ -31,7 +31,6 @@ def _real_build_steps() -> list[Step]:
         CheckpointStep(id="checkpoint-2", n=2),
         PauseStep(id="checkpoint-2-export-gate", title="Save recovery bundle"),
         CommandStep(id="unseal", argv=["ignored"]),
-        CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
         PauseStep(id="workstation", title="Prepare your workstation"),
         PauseStep(id="initial-passkey", title="Establish your first passkey"),

@@ -639,7 +639,7 @@ def build_passkey_payload(ctx: BootstrapContext) -> dict[str, Any]:
 
 # ADR-0044: the recovery bundle is the only cross-lifetime artifact, and it only
 # counts once it has left tmpfs (been downloaded). Everything after checkpoint-2
-# (unseal → seed-bao → post-seed → the long, unattended `configure`) can run for
+# (unseal → post-seed → the long, unattended `configure`) can run for
 # a long time on a constrained node; a crash before the operator has saved the
 # checkpoint-2 bundle is unrecoverable. So we gate continuation past checkpoint-2
 # on a *proven, current* download (enforced server-side in /api/bootstrap/resume).
@@ -674,7 +674,7 @@ def build_bootstrap_steps(
             ctx.run_playbook_argv("bootstrap-sandbox-provision-pre-seed.yml"),
         ),
         CheckpointStep(id="checkpoint-2", n=2),
-        # Forced export gate (ADR-0044): blocks unseal/seed-bao/post-seed/configure
+        # Forced export gate (ADR-0044): blocks unseal/post-seed/configure
         # until the checkpoint-2 bundle is proven downloaded off tmpfs.
         PauseStep(
             id=CHECKPOINT_EXPORT_GATE_ID,
@@ -689,15 +689,6 @@ def build_bootstrap_steps(
             # path here; the shared idempotent wrapper maps it to 0 so the graph
             # doesn't halt. Any other non-zero stays fatal.
             _idempotent_unseal_argv(ctx, "[dmf-init] unseal"),
-        ),
-        _command_step(
-            ctx,
-            "seed-bao",
-            [
-                str(ctx.repos_root / "dmf-env" / "bin" / "bootstrap-secrets.sh"),
-                "seed-bao",
-                ctx.env_id,
-            ],
         ),
         _command_step(
             ctx,
@@ -778,7 +769,7 @@ def make_checkpoint_fn(ctx: BootstrapContext):
     def checkpoint_fn(run: BootstrapRun, n: int) -> dict[str, Any]:
         if n == 2:
             # HARD FAIL if the keys file is absent. Proceeding would run `unseal`
-            # / `seed-bao` with an empty redaction set and stream the OpenBao
+            # with an empty redaction set and stream the OpenBao
             # unseal key + root token in clear. run_worker turns this into a
             # terminal `error` (the message names no secret), halting before
             # unseal. (qwen P1.)

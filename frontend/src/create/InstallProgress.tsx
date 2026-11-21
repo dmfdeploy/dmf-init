@@ -28,7 +28,6 @@ export function stepDisplayName(step: string): string {
     'pre-seed': 'Pre-seed',
     'checkpoint-2': 'Checkpoint #2',
     'unseal': 'Unseal',
-    'seed-bao': 'Seed Bao',
     'post-seed': 'Post-seed',
     'configure': 'Configure',
     'workstation': 'Workstation prep',

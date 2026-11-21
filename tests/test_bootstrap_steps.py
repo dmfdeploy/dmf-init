@@ -362,7 +362,6 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
         "checkpoint-2",
         "checkpoint-2-export-gate",
         "unseal",
-        "seed-bao",
         "post-seed",
         "workstation",
         "initial-passkey",
@@ -426,7 +425,6 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
         scripts={
             "pre-seed": (["pre-seed ok"], 0),
             "unseal": (["unseal UNSEAL-SENTINEL"], 0),
-            "seed-bao": (["seed ROOT-SENTINEL"], 0),
             "post-seed": (["post-seed ok"], 0),
             "configure": (["configure ok"], 0),
             "verify": (["verify ok"], 0),
@@ -526,10 +524,24 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
     assert run.events[-1]["checkpoints"] == [2, 3]
 
 
+def test_no_step_seeds_openbao_after_the_install(tmp_path: Path) -> None:
+    # The install seeds OpenBao with its own token and revokes it. A step after that
+    # has no root token, so no step may call a seed command of dmf-env.
+    ctx = _make_context(tmp_path, node_ip="203.0.113.171", base_domain="dmf.test")
+
+    steps = build_bootstrap_steps(ctx, setup_request_gate=True)
+
+    assert "seed-bao" not in [step.id for step in steps]
+    commands = [step for step in steps if isinstance(step, CommandStep)]
+    assert [c.id for c in commands if any("seed-bao" in str(arg) for arg in c.argv)] == []
+    pre_seed = next(c for c in commands if c.id == "pre-seed")
+    assert pre_seed.argv[-1].endswith("bootstrap-sandbox-provision-pre-seed.yml")
+
+
 def test_missing_openbao_keys_at_checkpoint_2_halts_before_unseal(tmp_path: Path) -> None:
     # qwen P1: if pre-seed did not produce openbao-keys.json, checkpoint #2 must
     # NOT silently proceed (which would stream the unseal key/root token in clear
-    # at the unseal/seed-bao steps). It must terminate the run with an error,
+    # at the unseal step). It must terminate the run with an error,
     # before unseal starts.
     ctx = _make_context(tmp_path, node_ip="203.0.113.171", base_domain="dmf.test")
     assert not (ctx.env_dir / "openbao-keys.json").exists()
@@ -537,9 +549,8 @@ def test_missing_openbao_keys_at_checkpoint_2_halts_before_unseal(tmp_path: Path
     executor = FakeExecutor(
         scripts={
             "pre-seed": (["pre-seed ok"], 0),
-            # unseal/seed-bao would emit the crown jewels — they must NEVER run.
+            # unseal would emit the crown jewels — it must NEVER run.
             "unseal": (["unseal SHOULD-NOT-RUN"], 0),
-            "seed-bao": (["seed SHOULD-NOT-RUN"], 0),
         }
     )
     run = BootstrapRun(
@@ -558,7 +569,6 @@ def test_missing_openbao_keys_at_checkpoint_2_halts_before_unseal(tmp_path: Path
     assert "openbao-keys.json" in run.events[-1]["error"]
     step_starts = {ev["step"] for ev in run.events if ev["event"] == "step_start"}
     assert "unseal" not in step_starts
-    assert "seed-bao" not in step_starts
     # secrets wiped on terminal error
     assert run.passphrase is None
     assert run.secrets == set()
