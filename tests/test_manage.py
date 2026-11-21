@@ -243,6 +243,7 @@ def test_manage_restore_integrity_mismatch_raises(tmp_path: Path) -> None:
 
 
 def test_doctor_run_redacts_seeded_openbao_secrets(tmp_path: Path) -> None:
+    _require_tools()
     data_root, env_id, _, _, manifest, _ = _build_backup_fixture(tmp_path)
     repos_bin = data_root / "repos" / "dmf-env" / "bin"
     repos_bin.mkdir(parents=True, exist_ok=True)
