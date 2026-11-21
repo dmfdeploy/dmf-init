@@ -34,8 +34,10 @@ COPY --from=frontend-builder /build/src/dmf_init/static/app ./src/dmf_init/stati
 
 # ansible-core (not the full `ansible` meta-package, which bundles hundreds of
 # unused community collections ≈436MB). The 3 collections the bootstrap actually
-# calls are installed from requirements-collections.yml below. rclone is gone —
-# the dual-remote backup model was removed (backups are browser downloads now).
+# calls are installed from requirements-collections.yml below. The image has no
+# rclone: backups are browser downloads, and no caller in the app passes remotes
+# to `backup`. The optional rclone remote path in backup.py needs rclone on the
+# host, and only the tests use it.
 COPY requirements-collections.yml ./
 RUN set -eux; \
     apt-get update; \
