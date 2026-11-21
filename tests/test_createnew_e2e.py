@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from dmf_init.backup import RcloneRemoteSpec, restore
+from dmf_init.backup import restore
 from dmf_init.createnew import (
     CreateNewBackupRequest,
     CreateNewRenderRequest,
@@ -23,7 +23,7 @@ from dmf_init.repos import RepoFetchRequest, fetch_runtime_repos
 def _require_tools() -> None:
     missing = [
         tool
-        for tool in ("sops", "age", "age-keygen", "yq", "rclone", "ssh-keygen", "git", "bash")
+        for tool in ("sops", "age", "age-keygen", "yq", "ssh-keygen", "git", "bash")
         if shutil.which(tool) is None
     ]
     if missing:
@@ -70,12 +70,6 @@ def _create_git_repo(base_dir: Path, name: str, branch: str, files: dict[str, st
     bare_repo = base_dir / f"{name}.git"
     _run_git(["clone", "--bare", str(worktree), str(bare_repo)], cwd=base_dir)
     return bare_repo
-
-
-def _create_local_remote(base_dir: Path, name: str) -> Path:
-    remote_dir = base_dir / name
-    remote_dir.mkdir()
-    return remote_dir
 
 
 def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
@@ -164,7 +158,7 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
 
     assert render_result.ssh_private_key_path == str(env_ssh_key)
     assert render_json["node_ip"] == "203.0.113.171"
-    assert render_json["base_domain"] == "dmf-sandbox.dmf.test"
+    assert render_json["base_domain"] == "203-0-113-171.sslip.io"
     assert env_ssh_key.exists()
     assert env_ssh_pub.exists()
     assert env_ssh_key.read_text(encoding="utf-8") == ssh_private_key
@@ -172,38 +166,20 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
     assert stat_mode(env_ssh_pub) == 0o644
     assert str(env_ssh_key) in rendered_inventory.read_text(encoding="utf-8")
 
-    remote_a = _create_local_remote(work_root, "remote-a")
-    remote_b = _create_local_remote(work_root, "remote-b")
     backup_result = run_backup_create_new(
         data_root,
         CreateNewBackupRequest(
             env_id=render_result.env_id,
             passphrase="correct horse battery staple",
             passphrase_confirm="correct horse battery staple",
-            remotes=[
-                RcloneRemoteSpec(
-                    name="remote-a",
-                    type="alias",
-                    options={"remote": str(remote_a)},
-                    destination_prefix="backups",
-                ),
-                RcloneRemoteSpec(
-                    name="remote-b",
-                    type="alias",
-                    options={"remote": str(remote_b)},
-                    destination_prefix="backups",
-                ),
-            ],
         ),
     )
 
-    remote_artifact = backup_result.backup.remote_artifacts[0]
     restore_root = work_root / "restore"
     restore_result = restore(
-        remote_artifact,
+        Path(backup_result.backup.artifact_path),
         "correct horse battery staple",
         restore_root,
-        rclone_config_path=Path(backup_result.backup.rclone_config_path),
     )
 
     restored_env_root = Path(restore_result.env_dir)
@@ -284,6 +260,44 @@ def test_stream_render_emits_error_event_for_invalid_ssh_key(tmp_path):
     assert events, "stream produced no events"
     assert events[-1]["event"] == "error"
     assert "private key" in events[-1]["error"]
+
+
+def test_run_render_rejects_invalid_ssh_key_with_an_error(tmp_path):
+    """The non-streaming render returns a result or raises. It must not hand
+    back a generator, which callers would mistake for a result."""
+    import shutil as _shutil
+
+    import pytest as _pytest
+
+    if not _shutil.which("ssh-keygen"):
+        _pytest.skip("ssh-keygen not available")
+
+    from dmf_init.createnew import (
+        CreateNewError,
+        CreateNewRenderRequest,
+        OperatorInputs,
+        SandboxInputs,
+        run_render_create_new,
+    )
+
+    data_root = tmp_path / "data"
+    wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
+    wizard.parent.mkdir(parents=True)
+    wizard.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    wizard.chmod(0o755)
+
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(username="op", email="op@dmf.test", display="Op"),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.99",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key="not a real key",
+        ),
+    )
+    with _pytest.raises(CreateNewError, match="private key"):
+        run_render_create_new(data_root, request)
 
 
 def test_stream_render_wraps_unexpected_failures_as_error_event(tmp_path):
