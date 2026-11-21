@@ -311,8 +311,7 @@ def run_render_create_new(
     _write_file(state.ssh_private_key_path, request.sandbox.ssh_private_key)
     key_error = _validate_ssh_private_key(state.ssh_private_key_path)
     if key_error:
-        yield json.dumps({"event": "error", "error": key_error}, separators=(",", ":")) + "\n"
-        return
+        raise CreateNewError(key_error)
     _write_file(
         state.answers_file_path,
         _answers_file_contents(request, state.ssh_private_key_path),
