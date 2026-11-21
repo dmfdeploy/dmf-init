@@ -462,7 +462,10 @@ def test_upgrade_in_place_script_passes_its_own_confirmation(tmp_path: Path) -> 
         (bin_dir / name).write_text(stub, encoding="utf-8")
         (bin_dir / name).chmod(0o755)
     env_dir = data_root / "envs" / session.env_id
-    (env_dir / "inventory").mkdir(parents=True, exist_ok=True)
+    group_vars = env_dir / "inventory" / "group_vars" / "all"
+    group_vars.mkdir(parents=True, exist_ok=True)
+    # The script reads the lane from the inventory and refuses to guess it.
+    (group_vars / "main.yml").write_text("dmf_provider: sandbox\n", encoding="utf-8")
 
     argv = build_action_argv(session, data_root, "upgrade-in-place", None)
     result = subprocess.run(
@@ -482,3 +485,4 @@ def test_upgrade_in_place_script_passes_its_own_confirmation(tmp_path: Path) -> 
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"bootstrap-secrets.sh seed-bao {session.env_id}" in calls.read_text(encoding="utf-8")
+    assert "bootstrap-sandbox-provision-pre-seed.yml" in calls.read_text(encoding="utf-8")
