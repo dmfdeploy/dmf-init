@@ -11,8 +11,10 @@ loopback-only web UI (React + FastAPI) that collects operator inputs, drives
 `dmf-env`'s `init-wizard.sh --non-interactive` + `bin/` scripts to render an env
 bundle and orchestrate the sandbox bootstrap, and seals a **passphrase-wrapped
 backup that you download in the browser**. The container never uploads a backup anywhere. After commissioning,
-the container is disposable. The downloaded encrypted backups + the operator
-passphrase are the only durable artifacts.
+the container is disposable. The downloaded encrypted backups, the recovery
+package built from the newest one (it also holds the CA certificate when
+present, a README and a SHA-256 manifest), and the operator passphrase are the
+only durable artifacts.
 
 ## Layers
 
@@ -20,7 +22,8 @@ passphrase are the only durable artifacts.
 |---|---|---|
 | **Tool layer** (image, static) | OpenTofu, Ansible, sops, age, kubectl, helm, jq, openssh, Python/FastAPI, built React assets | image |
 | **Repo layer** (runtime fetch) | Six platform repos (`dmf-env`, `dmf-infra`, `dmf-runbooks`, `dmf-cms`, `dmf-media`, `dmf-promsd`), shallow-cloned from the configured base URL at a ref you can set per repo (default `main`); never vendored into this repo or the image | tmpfs only |
-| **Runtime state** | env dir (`bundle.sops.yaml`, inventory, manifest, ssh keys, `openbao-keys`), age key, passphrase | **tmpfs only**; dies with the container |
+| **Runtime state** | env dir (`bundle.sops.yaml`, inventory, manifest, ssh keys, `openbao-keys`), age key | **tmpfs only**; dies with the container |
+| **Passphrase** | the operator passphrase | held in the run's memory and wiped when the run ends |
 | **Durable output** | passphrase-wrapped `*.tar.age` backups | browser downloads you save yourself (checkpoint backups, recovery package) |
 
 ## Secrets model
@@ -38,7 +41,8 @@ Inner:  ├─ bundle.sops.yaml   (age-keypair encrypted)
 
 `passphrase → unlock backup → recover age key → age key decrypts the inner sops
 bundle`. The run seals a new backup at each checkpoint (1, 2, and 3), and the
-latest one supersedes the earlier ones. The **passphrase** is the
+earlier backups stay in the artifacts directory, and the recovery package uses
+the newest one. The **passphrase** is the
 confidentiality boundary, held in a different trust domain (password manager /
 memorized).
 
