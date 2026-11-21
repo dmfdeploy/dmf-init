@@ -48,16 +48,27 @@ jobs:
       # The two round-trip tests render an env with the real init-wizard, back
       # it up and restore it. Without the variable they skip.
       - name: Install sops (the init-wizard encrypts the env bundle with it)
+        env:
+          SOPS_VERSION: "3.10.2"
+          # From sops-v3.10.2.checksums.txt on the same release.
+          SOPS_SHA256: "79b0f844237bd4b0446e4dc884dbc1765fc7dedc3968f743d5949c6f2e701739"
         run: |
-          sudo curl -fsSLo /usr/local/bin/sops "https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64"
-          sudo chmod +x /usr/local/bin/sops
+          set -eu
+          curl -fsSLo /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          echo "${SOPS_SHA256}  /tmp/sops" | sha256sum -c -
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
       - name: Create, back up and restore against the real dmf-env
         env:
           DMF_TEST_DMF_ENV_REPO: ${{ github.workspace }}/dmf-env
+        # A skip exits with success, so the last line of the quiet summary must
+        # say exactly "2 passed", with nothing skipped, failed or deselected.
         run: |
           set -o pipefail
-          pytest -rs tests/test_createnew_e2e.py tests/test_bootstrap_steps.py -k round_trip | tee "$RUNNER_TEMP/round-trip.txt"
-          grep -q " 2 passed" "$RUNNER_TEMP/round-trip.txt"
+          pytest -q -rs \
+            tests/test_createnew_e2e.py::test_create_new_hermetic_round_trip \
+            tests/test_bootstrap_steps.py::test_checkpoint_backup_round_trip_records_manifest_and_restores_openbao_keys \
+            | tee "$RUNNER_TEMP/round-trip.txt"
+          tail -n 1 "$RUNNER_TEMP/round-trip.txt" | grep -Eq '^2 passed( in |, [0-9]+ warnings? in )'
 
   launcher:
     runs-on: ubuntu-24.04
