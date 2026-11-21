@@ -87,8 +87,8 @@ def build_action_argv(
             str(candidate),
         ]
     if action == "upgrade-in-place":
-        # The run has no TTY, so the script's own confirm prompt would end it
-        # before seed-bao; the operator confirms by starting the action.
+        # The run has no TTY, so the script's own confirm prompt would end it; the
+        # operator confirms by starting the action.
         return [str(_manage_bin(data_root, "upgrade-in-place.sh")), session.env_id, "--yes"]
     if action == "teardown":
         return [str(_manage_bin(data_root, "remove-env.sh")), "--yes", session.env_id]

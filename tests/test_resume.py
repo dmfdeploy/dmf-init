@@ -37,7 +37,6 @@ def _real_build_steps() -> list[Step]:
         CheckpointStep(id="checkpoint-2", n=2),
         PauseStep(id="checkpoint-2-export-gate", title="Save recovery bundle"),
         CommandStep(id="unseal", argv=["ignored"]),
-        CommandStep(id="seed-bao", argv=["ignored"]),
         CommandStep(id="post-seed", argv=["ignored"]),
         PauseStep(id="workstation", title="Prepare your workstation"),
         PauseStep(id="initial-passkey", title="Establish your first passkey"),

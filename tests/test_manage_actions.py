@@ -484,5 +484,5 @@ def test_upgrade_in_place_script_passes_its_own_confirmation(tmp_path: Path) -> 
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert f"bootstrap-secrets.sh seed-bao {session.env_id}" in calls.read_text(encoding="utf-8")
+    assert argv[1:] == [session.env_id, "--yes"]
     assert "bootstrap-sandbox-provision-pre-seed.yml" in calls.read_text(encoding="utf-8")
