@@ -27,7 +27,9 @@ This section is the one place for development and test commands. The README and
 - **Node.js 22.** CI and the `Dockerfile` use Node 22, which includes npm 10.
   You need it only for the frontend.
 - **`age` and `rclone`.** The backup and restore tests call `age-keygen` and
-  `rclone`. Install them with your package manager, for example
+  `rclone`. The image ships `age` but not `rclone`: only the tests exercise
+  the optional rclone remote path in `backup.py`. Install both tools with your
+  package manager, for example
   `brew install age rclone` or `sudo apt-get install age rclone`. CI installs
   both. See [Run ruff and pytest](#run-ruff-and-pytest) for what happens
   when they are missing.
@@ -64,30 +66,28 @@ pytest
 `pytest` runs about 220 tests and takes about a minute and a half. `ruff check`
 takes a second. CI runs `ruff` first, then `pytest`.
 
-Some tests skip, and one fails, when a tool or variable is missing:
+Some tests skip when a tool or variable is missing:
 
 - **Without `age` or `rclone`,** the backup and restore tests skip with
-  `missing tools`. One test, `test_doctor_run_redacts_seeded_openbao_secrets`
-  in `tests/test_manage.py`, fails instead of skipping when `age-keygen` or
-  `rclone` is missing, because its fixture runs a real backup. A run with no
-  failures needs both tools. dmfdeploy/dmfdeploy#916 tracks making it skip.
+  `missing tools` and name the missing tool.
 - **Without `DMF_TEST_DMF_ENV_REPO`,** three tests skip. They use scripts from a
   checkout of the [dmf-env](https://github.com/dmfdeploy/dmf-env) repo, and the
   variable holds the path of that checkout.
 
 A plain `pytest` run on a machine with `age` and `rclone` therefore reports
 three skipped tests. This is the normal result, and CI's first `pytest` step
-skips the same three. CI then sets the variable for one of them, against a fresh
-dmf-env clone, so a flag rename in dmf-env fails there. CI doesn't run the other
-two. To run the one that CI runs:
+skips the same three. CI then sets the variable and runs all three, against a
+fresh dmf-env clone, so a flag rename in dmf-env fails there. To run them:
 
 ```bash
 git clone --depth 1 https://github.com/dmfdeploy/dmf-env.git ../dmf-env
 DMF_TEST_DMF_ENV_REPO=../dmf-env pytest -rs tests/test_manage_actions.py -k upgrade_in_place_script
+DMF_TEST_DMF_ENV_REPO=../dmf-env pytest -rs tests/test_createnew_e2e.py tests/test_bootstrap_steps.py -k round_trip
 ```
 
-The output must say `1 passed`. A skip also exits with success, which is why CI
-checks the output for `1 passed`.
+The first command must say `1 passed` and the second `2 passed`. A skip also
+exits with success, which is why CI checks the output for those counts. The
+round-trip tests also need `sops`, `yq`, `ssh-keygen`, `git` and `bash`.
 
 ### Run the launcher tests
 

@@ -45,6 +45,19 @@ jobs:
           set -o pipefail
           pytest -rs tests/test_manage_actions.py -k upgrade_in_place_script | tee "$RUNNER_TEMP/real-script.txt"
           grep -q " 1 passed" "$RUNNER_TEMP/real-script.txt"
+      # The two round-trip tests render an env with the real init-wizard, back
+      # it up and restore it. Without the variable they skip.
+      - name: Install sops (the init-wizard encrypts the env bundle with it)
+        run: |
+          sudo curl -fsSLo /usr/local/bin/sops "https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64"
+          sudo chmod +x /usr/local/bin/sops
+      - name: Create, back up and restore against the real dmf-env
+        env:
+          DMF_TEST_DMF_ENV_REPO: ${{ github.workspace }}/dmf-env
+        run: |
+          set -o pipefail
+          pytest -rs tests/test_createnew_e2e.py tests/test_bootstrap_steps.py -k round_trip | tee "$RUNNER_TEMP/round-trip.txt"
+          grep -q " 2 passed" "$RUNNER_TEMP/round-trip.txt"
 
   launcher:
     runs-on: ubuntu-24.04
