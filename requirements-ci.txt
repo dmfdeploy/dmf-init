@@ -1,0 +1,4 @@
+# Python tools that CI installs before the project's own dependencies. An exact
+# version keeps a new release from changing CI results on its own; Dependabot
+# proposes updates.
+pip==26.3

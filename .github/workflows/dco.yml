@@ -14,8 +14,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMITS_URL: ${{ github.event.pull_request.commits_url }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -eu
+          # dependabot[bot] cannot sign off commits, so its PRs are exempt. The
+          # job still ends in success: a skipped job is not a passed check, and
+          # a merge queue that requires every check to succeed would stall.
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "Dependabot commits are exempt from the sign-off check."
+            exit 0
+          fi
           case "$PR_COMMITS" in
             ''|*[!0-9]*) echo "::error::the PR commit count is missing or not a number; cannot verify every commit"; exit 1;;
           esac
