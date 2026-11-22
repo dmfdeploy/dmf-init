@@ -302,6 +302,12 @@ def test_fetch_is_refused_while_a_run_is_paused_at_a_gate(
     assert response.status_code == 409
     assert "a run is in progress" in response.json()["detail"]
 
+    run.resume("gate")  # let the worker finish
+    deadline = time.time() + 10
+    while app.state.active_runs and time.time() < deadline:
+        time.sleep(0.02)
+    assert not app.state.active_runs
+
 
 def test_fetch_is_allowed_with_no_run(tmp_path: Path) -> None:
     client, _ = _client(tmp_path / "data")

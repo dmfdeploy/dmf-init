@@ -545,14 +545,22 @@ def test_teardown_and_doctor_run_with_a_stale_checkout(tmp_path: Path) -> None:
     doctor = client.post("/api/manage/doctor", json={"session_id": session_id})
     assert "openbao-seed-in-install" not in str(doctor.json())
 
-    # Wait out the doctor run so the env is free for the next action.
-    for run in list(app.state.bootstrap_runs.values()):
-        deadline = time.time() + 20
-        while run.final_status is None and time.time() < deadline:
-            time.sleep(0.05)
+    _wait_for_runs(app)  # the doctor run frees the env for the next action
 
     teardown = client.post(
         "/api/manage/action/start",
         json={"session_id": session_id, "action": "teardown"},
     )
     assert teardown.status_code == 200
+    # The run takes a checkpoint backup, which encrypts with a passphrase and
+    # keeps a CPU busy. Wait for it, or it slows the tests that run next.
+    _wait_for_runs(app, timeout=60)
+
+
+def _wait_for_runs(app, timeout: float = 20) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not app.state.active_runs:
+            return
+        time.sleep(0.05)
+    raise AssertionError("a Manage run did not finish")
