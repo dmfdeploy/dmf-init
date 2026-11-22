@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from install_capabilities import write_install_capabilities
 
 from dmf_init.bootstrap_steps import BootstrapContext
 from dmf_init.main import _resume_cursor_path, create_app, make_resume_journal_fn
@@ -51,6 +52,7 @@ def _real_build_steps() -> list[Step]:
 
 
 def _make_env_on_disk(data_root: Path, env_id: str) -> tuple[Path, Path]:
+    write_install_capabilities(data_root)
     env_dir = data_root / "envs" / env_id
     render_dir = data_root / "runs" / env_id
     env_dir.mkdir(parents=True, exist_ok=True)

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from install_capabilities import write_install_capabilities
 
 from dmf_init.main import create_app
 from dmf_init.orchestrate import (
@@ -77,6 +78,7 @@ def _make_failed_run(
 
 
 def _make_env_on_disk(data_root: Path, env_id: str) -> tuple[Path, Path]:
+    write_install_capabilities(data_root)
     env_dir = data_root / "envs" / env_id
     render_dir = data_root / "runs" / env_id
     env_dir.mkdir(parents=True, exist_ok=True)

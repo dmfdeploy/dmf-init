@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,6 +30,52 @@ DEFAULT_REFS = {
     "dmf-media": "main",
     "dmf-promsd": "main",
 }
+
+
+# What dmf-init needs from the dmf-infra checkout. dmf-infra lists the
+# capabilities its install provides in INSTALL_CAPABILITIES_FILE. A checkout that
+# predates a capability does not list it, and dmf-init refuses to run against it.
+# "openbao-seed-in-install": the install seeds OpenBao with its own token, so no
+# step after it seeds. Without it, an install finishes with OpenBao unseeded.
+REQUIRED_INSTALL_CAPABILITIES = ("openbao-seed-in-install",)
+INSTALL_CAPABILITIES_FILE = Path("dmf-infra") / "k3s-lab-bootstrap" / "install-capabilities.txt"
+_CAPABILITY_TOKEN = re.compile(r"[a-z0-9-]+")
+
+
+class StaleRuntimeReposError(RuntimeError):
+    """The cached dmf-infra checkout lacks a capability dmf-init requires."""
+
+
+def missing_install_capabilities(repos_root: Path) -> list[str]:
+    """Return the required capabilities the dmf-infra checkout does not list.
+
+    A missing or unreadable file counts as missing every capability. Blank lines
+    and lines that start with ``#`` are ignored; any other line is one capability.
+    """
+    try:
+        text = (repos_root / INSTALL_CAPABILITIES_FILE).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return list(REQUIRED_INSTALL_CAPABILITIES)
+    listed = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and _CAPABILITY_TOKEN.fullmatch(line):
+            listed.add(line)
+    return [cap for cap in REQUIRED_INSTALL_CAPABILITIES if cap not in listed]
+
+
+def require_install_capabilities(repos_root: Path) -> None:
+    """Raise StaleRuntimeReposError if the dmf-infra checkout is too old to run."""
+    missing = missing_install_capabilities(repos_root)
+    if not missing:
+        return
+    checkout = repos_root / "dmf-infra"
+    raise StaleRuntimeReposError(
+        f"The dmf-infra checkout at {checkout} is out of date. It does not list "
+        f"the install capability {', '.join(missing)}, so an install run from it "
+        f"would skip a step. Remove {repos_root} so dmf-init fetches current "
+        "repos, then start again."
+    )
 
 
 class RepoFetchRequest(BaseModel):

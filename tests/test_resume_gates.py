@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from install_capabilities import write_install_capabilities
 
 from dmf_init.main import create_app
 from dmf_init.orchestrate import (
@@ -36,6 +37,7 @@ class OkExecutor:
 
 
 def _make_env_on_disk(data_root: Path) -> Path:
+    write_install_capabilities(data_root)
     env_dir = data_root / "envs" / ENV
     render_dir = data_root / "runs" / ENV
     env_dir.mkdir(parents=True, exist_ok=True)
