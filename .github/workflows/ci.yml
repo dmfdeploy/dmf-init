@@ -69,6 +69,23 @@ jobs:
             tests/test_bootstrap_steps.py::test_checkpoint_backup_round_trip_records_manifest_and_restores_openbao_keys \
             | tee "$RUNNER_TEMP/round-trip.txt"
           tail -n 1 "$RUNNER_TEMP/round-trip.txt" | grep -Eq '^2 passed( in |, [0-9]+ warnings? in )'
+      # dmf-infra's token revoker parses the audit record that dmf-init writes,
+      # using fixtures kept in dmf-infra. Run the test against them, so a change
+      # to the record format fails here instead of skipping.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: dmfdeploy/dmf-infra
+          path: dmf-infra
+          persist-credentials: false
+      - name: Revoker record fixtures against dmf-infra
+        env:
+          DMF_TEST_DMF_INFRA_REPO: ${{ github.workspace }}/dmf-infra
+        # A skip exits with success, so the last line of the quiet summary must
+        # say exactly "2 passed", with nothing skipped, failed or deselected.
+        run: |
+          set -o pipefail
+          pytest -q -rs tests/test_audit_revoker_fixture.py | tee "$RUNNER_TEMP/revoker-fixture.txt"
+          tail -n 1 "$RUNNER_TEMP/revoker-fixture.txt" | grep -Eq '^2 passed( in |, [0-9]+ warnings? in )'
 
   launcher:
     runs-on: ubuntu-24.04
