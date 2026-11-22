@@ -110,6 +110,7 @@ RUN pip install --no-cache-dir .
 
 # The packages named here are pinned to exact versions. Their own dependencies
 # resolve at build time, so a rebuild can pick up newer transitive versions.
+# Dependabot does not track the versions in this command; bump them by hand.
 # Install Ansible controller py-libs into /usr/bin/python3 (3.13 on trixie).
 # Ansible's collections/modules import from /usr/bin/python3, NOT the 3.12
 # /usr/local/bin/python that `pip install .` targets.

@@ -12,11 +12,17 @@
 # Deliberately NOT included (they belong to the in-cluster AWX Execution
 # Environment, not dmf-init): netbox.netbox (nb_inventory runs in the EE),
 # community.docker, ansible.netcommon — none are called as modules by the
-# bootstrap playbooks. Versions mirror dmf-infra/.../ee/requirements.yml.
+# bootstrap playbooks. Versions sit inside the ranges
+# dmf-infra/.../ee/requirements.yml gives.
+#
+# Exact versions keep an image rebuild from changing the collections on its own.
+# Dependabot does not update Galaxy collections; bump these by hand. Each is the
+# newest release inside the execution environment's range that supports
+# ansible-core 2.15, the same versions dmf-infra's CI tests.
 collections:
   - name: kubernetes.core
-    version: ">=5.0.0,<6.0.0"
+    version: 5.4.3
   - name: community.general
-    version: ">=9.0.0,<11.0.0"
+    version: 10.7.9
   - name: ansible.posix
-    version: ">=1.6.0,<2.0.0"
+    version: 1.6.2

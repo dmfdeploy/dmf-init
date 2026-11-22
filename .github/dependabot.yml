@@ -1,0 +1,54 @@
+---
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "no-issue"
+    commit-message:
+      prefix: "ci(deps)"
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      pip-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "no-issue"
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "monthly"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "no-issue"
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "no-issue"
+    commit-message:
+      prefix: "build(deps)"
