@@ -87,9 +87,9 @@ def require_install_capabilities(repos_root: Path) -> None:
     checkout = repos_root / "dmf-infra"
     raise StaleRuntimeReposError(
         f"The dmf-infra checkout at {checkout} (ref {_checkout_ref(checkout)}) does "
-        f"not declare the install capability {', '.join(missing)}. The selected ref "
-        f"must include it. Remove {repos_root} to fetch the current refs, or select "
-        "a ref that includes it, then start again."
+        f"not declare the install capability {', '.join(missing)}. Remove "
+        f"{repos_root} so dmf-init fetches again; if the selected dmf-infra ref "
+        "doesn't include the capability, also select one that does."
     )
 
 
