@@ -21,6 +21,7 @@ from .repos import (
     RepoFetchResult,
     RepoProvenance,
     fetch_runtime_repos,
+    require_install_capabilities,
 )
 from .yaml_utils import parse_yaml_scalar_anywhere
 
@@ -37,7 +38,9 @@ def ensure_runtime_repos(
 ) -> RepoFetchResult:
     """P1-6: If ALL required repos are already present in data_root/repos,
     short-circuit by synthesizing provenance from their git HEAD shas.
-    Otherwise, fall back to a full fetch from the provided base URL."""
+    Otherwise, fall back to a full fetch from the provided base URL. Either way
+    the dmf-infra checkout must list the install capabilities dmf-init requires;
+    otherwise this raises StaleRuntimeReposError."""
     repos_root = data_root / "repos"
     # Check every required repo
     all_present = all(
@@ -45,6 +48,9 @@ def ensure_runtime_repos(
         for name in REPO_NAMES
     )
     if all_present:
+        # A reused checkout can predate install-time seeding; refuse it before
+        # anything runs against it.
+        require_install_capabilities(repos_root)
         provenance: list[RepoProvenance] = []
         for name in REPO_NAMES:
             repo_path = repos_root / name
@@ -119,7 +125,10 @@ def ensure_runtime_repos(
         password=request.password or fallback_password,
         refs=request.refs,
     )
-    return fetch_runtime_repos(data_root, fetch_request)
+    result = fetch_runtime_repos(data_root, fetch_request)
+    # A clone of an old ref must fail the same way as a reused old checkout.
+    require_install_capabilities(repos_root)
+    return result
 
 
 @dataclass(frozen=True)
@@ -662,6 +671,27 @@ def build_checkpoint_export_gate_payload(ctx: BootstrapContext) -> dict[str, Any
             "be recovered. Continue is enabled once the current bundle has saved."
         ),
     }
+
+
+# Step ids that no longer exist. A run that failed at one of them cannot resume:
+# environments started before the change are rebuilt, not migrated (ADR-0051).
+RETIRED_STEP_IDS = {
+    "seed-bao": (
+        "the install now seeds OpenBao itself, so the seed-bao step was removed"
+    ),
+}
+
+
+def retired_step_message(step_id: str) -> str | None:
+    """Return the operator message for a retired step id, or None for any other id."""
+    reason = RETIRED_STEP_IDS.get(step_id)
+    if reason is None:
+        return None
+    return (
+        f"Step '{step_id}' no longer exists: {reason}. Environments started "
+        "before this change are rebuilt, not resumed. Remove this environment "
+        "and install again."
+    )
 
 
 def build_bootstrap_steps(

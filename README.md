@@ -176,6 +176,17 @@ docker run --rm -p 127.0.0.1:8000:8000 \
   ghcr.io/dmfdeploy/dmf-init:latest
 ```
 
+dmf-init reuses the repos already in `<data root>/repos` and does not fetch them
+again. It checks that the `dmf-infra` checkout lists the install capabilities
+dmf-init needs (`k3s-lab-bootstrap/install-capabilities.txt`) before it starts or
+retries an install. If the checkout is older, dmf-init refuses with a message that
+names the missing capability. Remove `<data root>/repos` so dmf-init fetches current
+repos, then start again.
+
+A run that failed at a step that no longer exists, such as `seed-bao`, can't be
+retried. Environments started before that change are rebuilt: remove the
+environment and install again.
+
 Multi-arch (amd64 + arm64), published by
 [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml).
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from install_capabilities import write_install_capabilities
 
 from dmf_init.logging_utils import (
     AccessLogTokenScrubFilter,
@@ -157,7 +158,12 @@ def test_repo_fetch_requires_session_but_healthz_is_open(tmp_path: Path) -> None
             "bin/init-wizard.sh": "#!/bin/sh\nset -eu\n# --non-interactive\n",
         },
     )
-    _create_repo(remotes_root, "dmf-infra", "main", {"README.md": "infra\n"})
+    _create_repo(
+        remotes_root,
+        "dmf-infra",
+        "main",
+        {"k3s-lab-bootstrap/install-capabilities.txt": "openbao-seed-in-install\n"},
+    )
     _create_repo(remotes_root, "dmf-runbooks", "main", {"README.md": "runbooks\n"})
     _create_repo(remotes_root, "dmf-cms", "main", {"README.md": "cms\n"})
     _create_repo(remotes_root, "dmf-media", "main", {"README.md": "media\n"})
@@ -241,6 +247,7 @@ def test_bootstrap_start_uses_real_graph_and_requires_two_remotes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = tmp_path / "data"
+    write_install_capabilities(data_root)
     env_id = "sandbox-alpha"
     env_dir = data_root / "envs" / env_id
     render_dir = data_root / "runs" / env_id
@@ -318,6 +325,7 @@ def test_bootstrap_passkey_status_uses_run_env_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = tmp_path / "data"
+    write_install_capabilities(data_root)
     env_id = "sandbox-alpha"
     env_dir = data_root / "envs" / env_id
     render_dir = data_root / "runs" / env_id
@@ -422,6 +430,7 @@ def test_bootstrap_passkey_status_builder_note_returns_502(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = tmp_path / "data"
+    write_install_capabilities(data_root)
     env_id = "sandbox-alpha"
     env_dir = data_root / "envs" / env_id
     render_dir = data_root / "runs" / env_id

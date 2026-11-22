@@ -50,6 +50,7 @@ from .bootstrap_steps import (
     build_setup_request_gate_steps,
     ensure_runtime_repos,
     make_checkpoint_fn,
+    retired_step_message,
     seed_openbao_redactions,
     supports_auto_unseal,
 )
@@ -82,7 +83,11 @@ from .orchestrate import (
     stream_events,
 )
 from .package import PackageError, build_package
-from .repos import RepoFetchRequest
+from .repos import (
+    RepoFetchRequest,
+    StaleRuntimeReposError,
+    require_install_capabilities,
+)
 from .settings import Settings, load_settings
 from .tls import ensure_self_signed
 
@@ -509,6 +514,16 @@ def _gate_mode_mismatch(recorded: object, current: bool) -> str | None:
     return None
 
 
+def _require_current_repos(data_root: Path) -> None:
+    """Refuse, as a 409, to run bootstrap steps against an out-of-date dmf-infra."""
+    try:
+        require_install_capabilities(data_root / "repos")
+    except StaleRuntimeReposError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+
 def _canonical_failed_step_id(run: BootstrapRun) -> str | None:
     """Map the synthetic bao-preflight step back to the canonical step it guards.
 
@@ -650,13 +665,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require_session)],
     )
     async def fetch_repos(payload: RepoFetchRequest) -> JSONResponse:
-        result = ensure_runtime_repos(
-            settings.data_root,
-            payload,
-            fallback_username=settings.repo_username,
-            fallback_password=settings.repo_password,
-            fallback_base_url=settings.repo_base_url,
-        )
+        try:
+            result = ensure_runtime_repos(
+                settings.data_root,
+                payload,
+                fallback_username=settings.repo_username,
+                fallback_password=settings.repo_password,
+                fallback_base_url=settings.repo_base_url,
+            )
+        except StaleRuntimeReposError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
         return JSONResponse(result.model_dump())
 
     @app.post(
@@ -829,6 +849,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"render metadata not found for env_id={payload.env_id}",
                 )
+            _require_current_repos(settings.data_root)
             ctx = BootstrapContext.from_data_root(
                 settings.data_root,
                 payload.env_id,
@@ -929,6 +950,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="failed step id not found in run",
             )
+
+        retired = retired_step_message(failed_step_id)
+        if retired is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=retired)
+        _require_current_repos(settings.data_root)
 
         with app.state.bootstrap_lock:
             if env_id in app.state.active_runs:
