@@ -14,16 +14,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMITS_URL: ${{ github.event.pull_request.commits_url }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
-          ACTOR: ${{ github.actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -eu
-          # dependabot[bot] cannot sign off commits, so its PRs are exempt. The
-          # job still ends in success: a skipped job is not a passed check, and
-          # a merge queue that requires every check to succeed would stall.
-          if [ "$ACTOR" = "dependabot[bot]" ]; then
-            echo "Dependabot commits are exempt from the sign-off check."
-            exit 0
-          fi
           case "$PR_COMMITS" in
             ''|*[!0-9]*) echo "::error::the PR commit count is missing or not a number; cannot verify every commit"; exit 1;;
           esac
@@ -37,10 +30,18 @@ jobs:
             [ -z "$batch" ] && break
             for row in $batch; do
               msg="$(printf '%s' "$row" | base64 -d | \
-                python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["commit"]["message"]);print(d["sha"])')"
+                python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["commit"]["message"]);print((d.get("author") or {}).get("login") or "");print(d["sha"])')"
               sha="$(printf '%s\n' "$msg" | tail -n1)"
+              author="$(printf '%s\n' "$msg" | tail -n2 | head -n1)"
               checked=$((checked+1))
-              body="$(printf '%s\n' "$msg" | sed '$d')"
+              body="$(printf '%s\n' "$msg" | sed '$d' | sed '$d')"
+              # dependabot[bot] cannot sign off. Exempt a commit only when the PR
+              # was opened by dependabot[bot] and the commit is authored by it, so
+              # the exemption does not depend on who triggered this run and a
+              # person's commit added to a Dependabot PR is still checked.
+              if [ "$PR_AUTHOR" = "dependabot[bot]" ] && [ "$author" = "dependabot[bot]" ]; then
+                continue
+              fi
               if ! printf '%s\n' "$body" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
                 echo "::error::commit ${sha} missing Signed-off-by trailer (run: git commit -s)"
                 missing=1
