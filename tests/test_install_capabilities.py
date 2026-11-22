@@ -9,6 +9,7 @@ failed at the retired seed-bao step is rebuilt, not resumed (ADR-0051).
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -86,14 +87,14 @@ def test_refusal_names_the_checkout_and_the_capability(tmp_path: Path) -> None:
     assert f"Remove {tmp_path / 'repos'}" in message
 
 
-def test_refusal_names_the_ref_and_offers_a_ref_that_includes_it(tmp_path: Path) -> None:
+def test_refusal_names_the_ref_and_the_remedy(tmp_path: Path) -> None:
     _git_checkouts(tmp_path)
     with pytest.raises(StaleRuntimeReposError) as raised:
         require_install_capabilities(tmp_path / "repos")
     message = str(raised.value)
     assert "ref " in message
-    assert "select a ref that includes it" in message
-    assert "to fetch the current refs" in message
+    assert f"Remove {tmp_path / 'repos'} so dmf-init fetches again" in message
+    assert "also select one that does" in message
 
 
 # -- ensure_runtime_repos: reuse and fresh clone ------------------------------
@@ -249,3 +250,60 @@ def test_unknown_failed_step_keeps_the_not_in_build_error(tmp_path: Path) -> Non
     )
     assert response.status_code == 409
     assert "not in build" in response.json()["detail"]
+
+
+# -- a fetch replaces the shared checkout, so it waits for runs ----------------
+
+
+def _fetch_body(tmp_path: Path) -> dict[str, str]:
+    return {"base_url": _remotes(tmp_path, {MARKER_PATH: f"{CAPABILITY}\n"}).as_uri()}
+
+
+def test_fetch_is_refused_while_a_run_is_active(tmp_path: Path) -> None:
+    client, app = _client(tmp_path / "data")
+    body = _fetch_body(tmp_path)
+    app.state.active_runs["sandbox-alpha"] = "run-1"
+    response = client.post("/api/repos/fetch", json=body)
+    assert response.status_code == 409
+    assert "a run is in progress" in response.json()["detail"]
+    assert not (tmp_path / "data" / "repos").exists()
+
+
+def test_fetch_is_refused_while_a_run_is_paused_at_a_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dmf_init.orchestrate import PauseStep
+
+    monkeypatch.setattr(
+        "dmf_init.main.build_bootstrap_steps",
+        lambda ctx, **_kw: [PauseStep(id="gate", title="Gate")],
+    )
+    data_root = tmp_path / "data"
+    _make_env_on_disk(data_root, "sandbox-alpha")
+    client, app = _client(data_root)
+    body = _fetch_body(tmp_path)
+    started = client.post(
+        "/api/bootstrap/start",
+        json={
+            "env_id": "sandbox-alpha",
+            "passphrase": "correct horse battery staple",
+            "passphrase_confirm": "correct horse battery staple",
+            "remotes": [],
+        },
+    )
+    assert started.status_code == 200
+    run = app.state.bootstrap_runs[started.json()["run_id"]]
+    deadline = time.time() + 10
+    while run.waiting_pause is None and time.time() < deadline:
+        time.sleep(0.02)
+    assert run.waiting_pause is not None
+
+    response = client.post("/api/repos/fetch", json=body)
+    assert response.status_code == 409
+    assert "a run is in progress" in response.json()["detail"]
+
+
+def test_fetch_is_allowed_with_no_run(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path / "data")
+    response = client.post("/api/repos/fetch", json=_fetch_body(tmp_path))
+    assert response.status_code == 200

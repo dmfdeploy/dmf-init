@@ -181,8 +181,8 @@ again. Before it starts or retries an install, or runs a Manage upgrade or
 playbook rerun, it checks that the `dmf-infra` checkout declares the install
 capabilities dmf-init needs (`k3s-lab-bootstrap/install-capabilities.txt`). If it
 doesn't, dmf-init refuses and names the checkout, its ref and the missing
-capability. The selected ref must include the capability: remove
-`<data root>/repos` to fetch the current refs, or select a ref that includes it.
+capability. Remove `<data root>/repos` so dmf-init fetches again; if the selected
+`dmf-infra` ref doesn't include the capability, also select one that does.
 
 Environments and runs started before this change aren't supported, so remove them
 and install again. A retry of a run that failed at the removed `seed-bao` step

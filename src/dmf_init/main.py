@@ -665,6 +665,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require_session)],
     )
     async def fetch_repos(payload: RepoFetchRequest) -> JSONResponse:
+        # The checkout is shared by every env. A fetch replaces it, so refuse
+        # while any run or Manage action is active, including one paused at a gate.
+        with app.state.bootstrap_lock:
+            busy = bool(app.state.active_runs)
+        if busy:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "a run is in progress; finish or stop it before fetching repos"
+                ),
+            )
         try:
             result = ensure_runtime_repos(
                 settings.data_root,
