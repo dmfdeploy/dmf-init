@@ -41,13 +41,6 @@ class BackupManifestMeta(BaseModel):
     checkpoint: int | None = None
 
 
-class RcloneRemoteSpec(BaseModel):
-    name: str
-    type: str
-    options: dict[str, str] = Field(default_factory=dict)
-    destination_prefix: str = ""
-
-
 class BackupManifest(BaseModel):
     backup_format_version: int
     env_id: str
@@ -60,23 +53,13 @@ class BackupManifest(BaseModel):
     inner_sha256: str
 
 
-class BackupRemoteStatus(BaseModel):
-    name: str
-    destination: str
-    validated: bool
-    uploaded: bool
-
-
 class BackupResult(BaseModel):
     artifact_name: str
     scratch_dir: str
     artifact_path: str
-    rclone_config_path: str
     manifest_path: str
     inner_sha256: str
     manifest: BackupManifest
-    remote_statuses: list[BackupRemoteStatus]
-    remote_artifacts: list[str]
 
 
 class RestoreResult(BaseModel):
@@ -252,75 +235,6 @@ def _derive_age_recipient(age_key_path: Path) -> str:
     return public_key
 
 
-def _write_rclone_config(remotes: list[RcloneRemoteSpec], config_dir: Path) -> Path:
-    config_path = config_dir / "rclone.conf"
-    lines: list[str] = []
-    for remote in remotes:
-        lines.append(f"[{remote.name}]")
-        lines.append(f"type = {remote.type}")
-        for key in sorted(remote.options):
-            lines.append(f"{key} = {remote.options[key]}")
-        lines.append("")
-    config_path.write_text("\n".join(lines), encoding="utf-8")
-    config_path.chmod(0o600)
-    return config_path
-
-
-def _remote_destination(remote: RcloneRemoteSpec, artifact_name: str) -> str:
-    if remote.destination_prefix:
-        prefix = remote.destination_prefix.strip("/")
-        return f"{remote.name}:{prefix}/{artifact_name}"
-    return f"{remote.name}:{artifact_name}"
-
-
-def _run_rclone(args: list[str], *, config_path: Path) -> None:
-    subprocess.run(
-        ["rclone", "--config", str(config_path), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _validate_remote(
-    *,
-    remote: RcloneRemoteSpec,
-    config_path: Path,
-    artifact_name: str,
-    work_dir: Path,
-) -> None:
-    probe_source = work_dir / "probe"
-    probe_source.write_bytes(b"")
-    destination = _remote_destination(remote, f"probe/{artifact_name}.probe")
-    logger.info(
-        "validating remote",
-        extra={"event": "backup_remote_validate", "remote": remote.name},
-    )
-    # Prove write+OVERWRITE (a bare create can pass on append-only buckets), and
-    # always attempt to remove the probe — even if a copy raises — so a failed
-    # validation never leaves an orphan probe on the remote.
-    try:
-        _run_rclone(["copyto", str(probe_source), destination], config_path=config_path)
-        _run_rclone(["copyto", str(probe_source), destination], config_path=config_path)
-    finally:
-        try:
-            _run_rclone(["deletefile", destination], config_path=config_path)
-        except subprocess.CalledProcessError:
-            pass  # probe may not exist if the first copyto failed
-
-
-def _copy_to_remote(
-    *,
-    remote: RcloneRemoteSpec,
-    config_path: Path,
-    artifact_path: Path,
-    artifact_name: str,
-) -> str:
-    destination = _remote_destination(remote, artifact_name)
-    _run_rclone(["copyto", str(artifact_path), destination], config_path=config_path)
-    return destination
-
-
 # age scrypt passphrase wrapping via pyrage (in-memory; no plaintext to disk, no
 # pty). pyrage is a hard dependency (prebuilt aarch64 wheel baked into the image),
 # so there is no CLI/tty fallback — a missing pyrage is a hard import-time failure,
@@ -348,10 +262,8 @@ def backup(
     answers_file: Path,
     passphrase: str | bytes,
     *,
-    remotes: list[RcloneRemoteSpec] | None = None,
     manifest_meta: BackupManifestMeta,
 ) -> BackupResult:
-    remotes = remotes or []
     if not env_dir.is_dir():
         raise ValueError("env_dir must be a directory")
     if not age_key_path.is_file():
@@ -361,7 +273,6 @@ def backup(
 
     passphrase_text = _coerce_passphrase(passphrase)
     work_dir = Path(tempfile.mkdtemp(prefix="dmf-backup-"))
-    config_path = _write_rclone_config(remotes, work_dir) if remotes else None
     env_tar_bytes = _build_inner_tar_bytes(env_dir)
     inner_sha256 = hashlib.sha256(env_tar_bytes).hexdigest()
     manifest = BackupManifest(
@@ -387,33 +298,6 @@ def backup(
     artifact_path = work_dir / artifact_name
     artifact_path.write_bytes(_encrypt_with_passphrase(outer_tar_bytes, passphrase_text))
 
-    remote_statuses: list[BackupRemoteStatus] = []
-    remote_artifacts: list[str] = []
-    if remotes and config_path:
-        for remote in remotes:
-            _validate_remote(
-                remote=remote,
-                config_path=config_path,
-                artifact_name=artifact_name,
-                work_dir=work_dir,
-            )
-        for remote in remotes:
-            destination = _copy_to_remote(
-                remote=remote,
-                config_path=config_path,
-                artifact_path=artifact_path,
-                artifact_name=artifact_name,
-            )
-            remote_statuses.append(
-                BackupRemoteStatus(
-                    name=remote.name,
-                    destination=destination,
-                    validated=True,
-                    uploaded=True,
-                )
-            )
-            remote_artifacts.append(destination)
-
     manifest_path = work_dir / "MANIFEST.json"
     manifest_path.write_text(
         json.dumps(
@@ -429,12 +313,9 @@ def backup(
         artifact_name=artifact_name,
         scratch_dir=str(work_dir),
         artifact_path=str(artifact_path),
-        rclone_config_path=str(config_path),
         manifest_path=str(manifest_path),
         inner_sha256=inner_sha256,
         manifest=manifest,
-        remote_statuses=remote_statuses,
-        remote_artifacts=remote_artifacts,
     )
     logger.info(
         "backup complete",
@@ -442,42 +323,25 @@ def backup(
             "event": "backup_complete",
             "env_id": manifest_meta.env_id,
             "artifact_name": artifact_name,
-            "remotes": [remote.name for remote in remotes],
         },
     )
     return result
 
 
-def _download_remote_artifact(source: str, destination: Path, *, config_path: Path) -> None:
-    _run_rclone(
-        ["copyto", source, str(destination)],
-        config_path=config_path,
-    )
-
-
 def restore(
-    backup_artifact_or_remote: str | Path,
+    backup_artifact: str | Path,
     passphrase: str | bytes,
     dest_dir: Path,
-    *,
-    rclone_config_path: Path | None = None,
 ) -> RestoreResult:
     passphrase_text = _coerce_passphrase(passphrase)
     dest_dir.mkdir(parents=True, exist_ok=True)
     restore_root = Path(tempfile.mkdtemp(prefix="dmf-restore-", dir=dest_dir.parent))
     encrypted_path = restore_root / "backup.tar.age"
-    source_text = str(backup_artifact_or_remote)
-    if Path(source_text).exists():
-        encrypted_source = Path(source_text)
-        encrypted_path.write_bytes(encrypted_source.read_bytes())
-        source_label = str(encrypted_source)
-    elif ":" in source_text:
-        source_label = source_text
-        if rclone_config_path is None:
-            raise BackupError("remote restore requires rclone_config_path")
-        _download_remote_artifact(source_label, encrypted_path, config_path=rclone_config_path)
-    else:
-        raise BackupError("backup_artifact_or_remote must be a file path or remote:path")
+    source_path = Path(backup_artifact)
+    if not source_path.exists():
+        raise BackupError("backup_artifact must be a file path")
+    encrypted_path.write_bytes(source_path.read_bytes())
+    source_label = str(source_path)
 
     outer_tar_path = restore_root / "backup.tar"
     outer_tar_path.write_bytes(

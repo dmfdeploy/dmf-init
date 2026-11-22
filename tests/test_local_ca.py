@@ -325,7 +325,7 @@ def _make_ctx(tmp_path: Path) -> BootstrapContext:
         ),
         encoding="utf-8",
     )
-    return BootstrapContext.from_data_root(data_root, env_id, [])
+    return BootstrapContext.from_data_root(data_root, env_id)
 
 
 @needs_openssl

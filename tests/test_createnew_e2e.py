@@ -15,7 +15,7 @@ from dmf_init.createnew import (
     OperatorInputs,
     SandboxInputs,
     run_backup_create_new,
-    run_render_create_new,
+    stream_render_create_new,
 )
 from dmf_init.repos import RepoFetchRequest, fetch_runtime_repos
 
@@ -129,26 +129,26 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
     )
     ssh_private_key = ssh_key_path.read_text(encoding="utf-8")
 
-    render_result = run_render_create_new(
-        data_root,
-        CreateNewRenderRequest(
-            operator=OperatorInputs(
-                username="marty-mcfly",
-                email="marty@dmf.test",
-                display="Marty McFly",
-            ),
-            sandbox=SandboxInputs(
-                label="demo",
-                node_ip="203.0.113.171",
-                ansible_user="lima",
-                iface="lima0",
-                ssh_private_key=ssh_private_key,
-            ),
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(
+            username="marty-mcfly",
+            email="marty@dmf.test",
+            display="Marty McFly",
+        ),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.171",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key=ssh_private_key,
         ),
     )
-    env_root = data_root / "envs" / render_result.env_id
+    events = [json.loads(line) for line in stream_render_create_new(data_root, request)]
+    assert events[-1]["event"] == "complete", events[-1]
+    env_id = events[-1]["env_id"]
+    env_root = data_root / "envs" / env_id
     render_json = json.loads(
-        (data_root / "runs" / render_result.env_id / "render.json").read_text(
+        (data_root / "runs" / env_id / "render.json").read_text(
             encoding="utf-8"
         )
     )
@@ -156,7 +156,7 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
     env_ssh_pub = env_root / "ssh" / "sandbox-node.key.pub"
     rendered_inventory = env_root / "inventory" / "group_vars" / "all" / "main.yml"
 
-    assert render_result.ssh_private_key_path == str(env_ssh_key)
+    assert render_json["ssh_private_key_path"] == str(env_ssh_key)
     assert render_json["node_ip"] == "203.0.113.171"
     assert render_json["base_domain"] == "203-0-113-171.sslip.io"
     assert env_ssh_key.exists()
@@ -169,7 +169,7 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
     backup_result = run_backup_create_new(
         data_root,
         CreateNewBackupRequest(
-            env_id=render_result.env_id,
+            env_id=env_id,
             passphrase="correct horse battery staple",
             passphrase_confirm="correct horse battery staple",
         ),
@@ -189,7 +189,7 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
     home_root = work_root / "home"
     dmf_dir = home_root / ".dmfdeploy" / "envs"
     dmf_dir.mkdir(parents=True, exist_ok=True)
-    restored_env_link = dmf_dir / render_result.env_id
+    restored_env_link = dmf_dir / env_id
     restored_env_link.symlink_to(Path(restore_result.env_dir))
 
     doctor_env = os.environ.copy()
@@ -203,7 +203,7 @@ def test_create_new_hermetic_round_trip(tmp_path: Path) -> None:
         [
             str(source_repo / "bin" / "bootstrap-secrets.sh"),
             "doctor",
-            render_result.env_id,
+            env_id,
         ],
         cwd=source_repo,
         check=True,
@@ -261,43 +261,6 @@ def test_stream_render_emits_error_event_for_invalid_ssh_key(tmp_path):
     assert events[-1]["event"] == "error"
     assert "private key" in events[-1]["error"]
 
-
-def test_run_render_rejects_invalid_ssh_key_with_an_error(tmp_path):
-    """The non-streaming render returns a result or raises. It must not hand
-    back a generator, which callers would mistake for a result."""
-    import shutil as _shutil
-
-    import pytest as _pytest
-
-    if not _shutil.which("ssh-keygen"):
-        _pytest.skip("ssh-keygen not available")
-
-    from dmf_init.createnew import (
-        CreateNewError,
-        CreateNewRenderRequest,
-        OperatorInputs,
-        SandboxInputs,
-        run_render_create_new,
-    )
-
-    data_root = tmp_path / "data"
-    wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
-    wizard.parent.mkdir(parents=True)
-    wizard.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-    wizard.chmod(0o755)
-
-    request = CreateNewRenderRequest(
-        operator=OperatorInputs(username="op", email="op@dmf.test", display="Op"),
-        sandbox=SandboxInputs(
-            label="demo",
-            node_ip="203.0.113.99",
-            ansible_user="lima",
-            iface="lima0",
-            ssh_private_key="not a real key",
-        ),
-    )
-    with _pytest.raises(CreateNewError, match="private key"):
-        run_render_create_new(data_root, request)
 
 
 def test_stream_render_wraps_unexpected_failures_as_error_event(tmp_path):

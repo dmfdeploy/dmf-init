@@ -156,7 +156,6 @@ class BootstrapContext:
         cls,
         data_root: Path,
         env_id: str,
-        remotes: list | None = None,  # accepted for backward compat, ignored
     ) -> BootstrapContext:
         # P1-2: validate env_id BEFORE any path construction
         from .backup import validate_env_id

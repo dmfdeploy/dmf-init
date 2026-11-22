@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from dmf_init import bootstrap_steps
-from dmf_init.backup import BackupResult, RcloneRemoteSpec, restore
+from dmf_init.backup import BackupResult, restore
 from dmf_init.bootstrap_steps import (
     BootstrapContext,
     BootstrapRenderMeta,
@@ -28,7 +28,7 @@ from dmf_init.createnew import (
     CreateNewRenderRequest,
     OperatorInputs,
     SandboxInputs,
-    run_render_create_new,
+    stream_render_create_new,
 )
 from dmf_init.orchestrate import BootstrapRun, CommandStep, run_worker
 from dmf_init.repos import RepoFetchRequest, fetch_runtime_repos
@@ -102,31 +102,6 @@ def _create_repo(base_dir: Path, name: str, branch: str, files: dict[str, str]) 
     return bare_repo
 
 
-def _create_local_remote(base_dir: Path, name: str) -> Path:
-    remote_dir = base_dir / name
-    remote_dir.mkdir()
-    return remote_dir
-
-
-def _write_rclone_alias_config(config_path: Path, remote_a: Path, remote_b: Path) -> None:
-    config_path.write_text(
-        "\n".join(
-            [
-                "[remote-a]",
-                "type = alias",
-                f"remote = {remote_a}",
-                "",
-                "[remote-b]",
-                "type = alias",
-                f"remote = {remote_b}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    config_path.chmod(0o600)
-
-
 def _make_context(
     tmp_path: Path, *, node_ip: str | None, base_domain: str | None
 ) -> BootstrapContext:
@@ -157,7 +132,7 @@ def _make_context(
         json.dumps(render_json, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    return BootstrapContext.from_data_root(data_root, env_id, [])
+    return BootstrapContext.from_data_root(data_root, env_id)
 
 
 def test_build_ca_cert_payload_uses_live_ssh_fetch(
@@ -438,7 +413,7 @@ def test_bootstrap_graph_redacts_checkpoint_secrets_and_pauses_in_order(
             data = json.loads((ctx.env_dir / "openbao-keys.json").read_text(encoding="utf-8"))
             for secret in _iter_secret_strings(data):
                 run.add_secret(secret)
-        return {"artifact_name": f"artifact-{n}", "remotes": ["remote-a", "remote-b"]}
+        return {"artifact_name": f"artifact-{n}"}
 
     run = BootstrapRun(
         run_id="run-1",
@@ -577,7 +552,7 @@ def test_missing_openbao_keys_at_checkpoint_2_halts_before_unseal(tmp_path: Path
 def _require_tools() -> None:
     missing = [
         tool
-        for tool in ("sops", "age", "age-keygen", "yq", "rclone", "ssh-keygen", "git", "bash")
+        for tool in ("sops", "age", "age-keygen", "yq", "ssh-keygen", "git", "bash")
         if shutil.which(tool) is None
     ]
     if missing:
@@ -643,25 +618,25 @@ def test_checkpoint_backup_round_trip_records_manifest_and_restores_openbao_keys
     )
     ssh_private_key = ssh_key_path.read_text(encoding="utf-8")
 
-    render_result = run_render_create_new(
-        data_root,
-        CreateNewRenderRequest(
-            operator=OperatorInputs(
-                username="marty-mcfly",
-                email="marty@dmf.test",
-                display="Marty McFly",
-            ),
-            sandbox=SandboxInputs(
-                label="demo",
-                node_ip="203.0.113.171",
-                ansible_user="lima",
-                iface="lima0",
-                ssh_private_key=ssh_private_key,
-            ),
+    request = CreateNewRenderRequest(
+        operator=OperatorInputs(
+            username="marty-mcfly",
+            email="marty@dmf.test",
+            display="Marty McFly",
+        ),
+        sandbox=SandboxInputs(
+            label="demo",
+            node_ip="203.0.113.171",
+            ansible_user="lima",
+            iface="lima0",
+            ssh_private_key=ssh_private_key,
         ),
     )
+    events = [json.loads(line) for line in stream_render_create_new(data_root, request)]
+    assert events[-1]["event"] == "complete", events[-1]
+    env_id = events[-1]["env_id"]
 
-    env_dir = data_root / "envs" / render_result.env_id
+    env_dir = data_root / "envs" / env_id
     (env_dir / "openbao-keys.json").write_text(
         json.dumps(
             {
@@ -675,30 +650,7 @@ def test_checkpoint_backup_round_trip_records_manifest_and_restores_openbao_keys
         encoding="utf-8",
     )
 
-    remote_a = _create_local_remote(work_root, "remote-a")
-    remote_b = _create_local_remote(work_root, "remote-b")
-    rclone_config_path = work_root / "rclone.conf"
-    _write_rclone_alias_config(rclone_config_path, remote_a, remote_b)
-    remotes = [
-        RcloneRemoteSpec(
-            name="remote-a",
-            type="alias",
-            options={"remote": str(remote_a)},
-            destination_prefix="backups",
-        ),
-        RcloneRemoteSpec(
-            name="remote-b",
-            type="alias",
-            options={"remote": str(remote_b)},
-            destination_prefix="backups",
-        ),
-    ]
-
-    ctx = BootstrapContext.from_data_root(
-        data_root,
-        render_result.env_id,
-        remotes,
-    )
+    ctx = BootstrapContext.from_data_root(data_root, env_id)
     captured_results: list[BackupResult] = []
     real_backup = bootstrap_steps.backup
 
@@ -713,7 +665,6 @@ def test_checkpoint_backup_round_trip_records_manifest_and_restores_openbao_keys
         run_id="run-checkpoint",
         steps=[],
         passphrase="correct horse battery staple",
-        remotes=remotes,
     )
 
     checkpoint_2 = checkpoint_fn(run, 2)

@@ -13,7 +13,6 @@ from install_capabilities import write_install_capabilities
 
 from dmf_init.backup import (
     BackupManifestMeta,
-    RcloneRemoteSpec,
     backup,
     restore,
 )
@@ -26,7 +25,7 @@ from dmf_init.settings import Settings
 
 
 def _require_tools() -> None:
-    missing = [tool for tool in ("rclone", "age", "age-keygen") if shutil.which(tool) is None]
+    missing = [tool for tool in ("age", "age-keygen") if shutil.which(tool) is None]
     if missing:
         pytest.skip(f"missing tools: {', '.join(missing)}")
 
@@ -40,25 +39,6 @@ def _run_age_keygen(key_path: Path) -> None:
     )
 
 
-def _write_rclone_alias_config(config_path: Path, remote_a: Path, remote_b: Path) -> None:
-    config_path.write_text(
-        "\n".join(
-            [
-                "[remote-a]",
-                "type = alias",
-                f"remote = {remote_a}",
-                "",
-                "[remote-b]",
-                "type = alias",
-                f"remote = {remote_b}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    config_path.chmod(0o600)
-
-
 def _seed_env_tree(env_dir: Path) -> None:
     (env_dir / "bundle.sops.yaml").write_text("sops: {}\n", encoding="utf-8")
     (env_dir / "manifest.yaml").write_text("manifest: {}\n", encoding="utf-8")
@@ -68,30 +48,6 @@ def _seed_env_tree(env_dir: Path) -> None:
     (env_dir / "openbao-keys" / "tier3.key").write_text("unseal-key\n", encoding="utf-8")
     (env_dir / "ssh").mkdir()
     (env_dir / "ssh" / "id_ed25519").write_text("ssh-private-key\n", encoding="utf-8")
-
-
-def _build_remote_specs(tmp_path: Path) -> tuple[list[RcloneRemoteSpec], Path]:
-    remote_a = tmp_path / "remote-a"
-    remote_b = tmp_path / "remote-b"
-    remote_a.mkdir()
-    remote_b.mkdir()
-    config_path = tmp_path / "rclone.conf"
-    _write_rclone_alias_config(config_path, remote_a, remote_b)
-    remotes = [
-        RcloneRemoteSpec(
-            name="remote-a",
-            type="alias",
-            options={"remote": str(remote_a)},
-            destination_prefix="backups",
-        ),
-        RcloneRemoteSpec(
-            name="remote-b",
-            type="alias",
-            options={"remote": str(remote_b)},
-            destination_prefix="backups",
-        ),
-    ]
-    return remotes, config_path
 
 
 def _seed_repos_bin(data_root: Path) -> None:
@@ -113,7 +69,7 @@ def _build_backup_fixture(
     tmp_path: Path,
     *,
     passphrase: str = "correct horse battery staple",
-) -> tuple[Path, str, list[RcloneRemoteSpec], str]:
+) -> tuple[Path, str, str, Path]:
     data_root = tmp_path / "data"
     env_id = "sandbox-alpha"
     env_dir = data_root / "envs" / env_id
@@ -124,13 +80,11 @@ def _build_backup_fixture(
     age_key_path = data_root / "backup.age.key"
     _run_age_keygen(age_key_path)
 
-    remotes, _ = _build_remote_specs(tmp_path)
     backup_result = backup(
         env_dir=env_dir,
         age_key_path=age_key_path,
         answers_file=answers_file,
         passphrase=passphrase,
-        remotes=remotes,
         manifest_meta=BackupManifestMeta(
             env_id=env_id,
             profile="sandbox-single-node",
@@ -139,13 +93,12 @@ def _build_backup_fixture(
         ),
     )
     artifact_path = Path(backup_result.artifact_path)
-    return (data_root, env_id, remotes, backup_result.artifact_name,
-            artifact_path)
+    return data_root, env_id, backup_result.artifact_name, artifact_path
 
 
 def test_mutating_action_graph_order(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     session, _ = run_manage_restore(
         data_root,
@@ -172,7 +125,7 @@ def test_mutating_action_graph_order(tmp_path: Path) -> None:
 
 def test_teardown_graph_order(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     session, _ = run_manage_restore(
         data_root,
@@ -199,7 +152,7 @@ def test_teardown_graph_order(tmp_path: Path) -> None:
 
 def test_rerun_playbook_missing_param_raises(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     session, _ = run_manage_restore(
         data_root,
@@ -219,7 +172,7 @@ def test_action_run_rebackups_and_completes(
     _require_tools()
     stamps = iter(["20260101T000001Z", "20260101T000002Z"])
     monkeypatch.setattr("dmf_init.backup._utc_stamp", lambda: next(stamps))
-    data_root, env_id, remotes, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     openbao_keys_path = data_root / "envs" / env_id / "openbao-keys.json"
     openbao_keys_path.write_text(json.dumps({"root_token": "ultrasecret"}), encoding="utf-8")
@@ -266,7 +219,7 @@ def test_action_run_rebackups_and_completes(
 
 def test_action_redaction(tmp_path: Path) -> None:
     _require_tools()
-    data_root, env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     secret = "ultrasecret"
 
@@ -305,7 +258,7 @@ def test_action_redaction(tmp_path: Path) -> None:
 
 def test_endpoint_flow(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     app = create_app(Settings(data_root=data_root, tls_enabled=False))
     client = TestClient(app)
@@ -333,7 +286,7 @@ def test_endpoint_flow(tmp_path: Path) -> None:
 
 def test_rerun_playbook_builds_under_repos(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     session, _ = run_manage_restore(
         data_root,
@@ -356,7 +309,7 @@ def test_rerun_playbook_builds_under_repos(tmp_path: Path) -> None:
 
 
 def _restore_session(tmp_path: Path):
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     session, _ = run_manage_restore(
         data_root,
@@ -494,7 +447,7 @@ def test_upgrade_in_place_script_passes_its_own_confirmation(tmp_path: Path) -> 
 
 def _endpoint_session(tmp_path: Path, *, stale: bool):
     """Restore a Manage session through the API; optionally leave a stale dmf-infra."""
-    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _env_id, _, artifact_path = _build_backup_fixture(tmp_path)
     _seed_repos_bin(data_root)
     if stale:
         (data_root / "repos" / INSTALL_CAPABILITIES_FILE).unlink()

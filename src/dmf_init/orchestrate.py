@@ -98,7 +98,6 @@ class BootstrapRun:
     terminal: bool = False
     final_status: str | None = None
     passphrase: str | None = None
-    remotes: list = field(default_factory=list)  # unused after download-model switch
     executor: CommandExecutor = field(default_factory=SubprocessExecutor)
     checkpoint_fn: Callable[[BootstrapRun, int], dict[str, Any]] | None = None
     # Best-effort persistence hook invoked once the run reaches a terminal
