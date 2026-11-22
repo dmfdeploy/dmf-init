@@ -18,13 +18,21 @@ jobs:
     # changes: add the no-issue label.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      pull-requests: read
     steps:
       - name: PR references a canonical-backlog issue (qualified)
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -eu
+          # Read the body and labels now, not from the event payload. Dependabot
+          # opens a PR and labels it at once; the payload of the run that
+          # survives the concurrency group can predate the label.
+          PR_BODY="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.body // ""')"
+          PR_LABELS="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '[.labels[].name] | join(" ")')"
           # A link to a private agent session does not belong in a public PR (#838).
           # This runs before the no-issue exit, so the label cannot skip it. The match
           # is case-insensitive because hostnames are; it targets accidental links,
