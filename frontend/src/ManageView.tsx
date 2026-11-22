@@ -701,8 +701,8 @@ export default function ManageView() {
               </div>
 
               <p className="mt-4 text-sm text-muted">
-                Remote backups are kept by default; purge is a manual step and is out of scope for
-                this build.
+                Checkpoint backups stay in the data root and are offered for download. Keep your
+                own copy, because the container does not store one elsewhere.
               </p>
               {banner && (
                 <div
