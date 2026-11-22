@@ -861,11 +861,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail=f"render metadata not found for env_id={payload.env_id}",
                 )
             _require_current_repos(settings.data_root)
-            ctx = BootstrapContext.from_data_root(
-                settings.data_root,
-                payload.env_id,
-                remotes=[],
-            )
+            ctx = BootstrapContext.from_data_root(settings.data_root, payload.env_id)
             run_id = secrets.token_urlsafe(8)
             run = BootstrapRun(
                 run_id=run_id,
@@ -874,7 +870,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 env_id=payload.env_id,
                 passphrase=payload.passphrase,
-                remotes=[],
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
                 journal_fn=make_resume_journal_fn(ctx),
@@ -981,7 +976,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         try:
             try:
-                ctx = BootstrapContext.from_data_root(settings.data_root, env_id, remotes=[])
+                ctx = BootstrapContext.from_data_root(settings.data_root, env_id)
             except FileNotFoundError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=str(exc),
@@ -1073,7 +1068,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 steps=steps,
                 env_id=env_id,
                 passphrase=payload.passphrase,
-                remotes=[],
                 executor=SubprocessExecutor(),
                 checkpoint_fn=make_checkpoint_fn(ctx),
                 journal_fn=make_resume_journal_fn(ctx),
@@ -1195,7 +1189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="run env_id unavailable"
                 )
-            ctx = BootstrapContext.from_data_root(settings.data_root, run.env_id, run.remotes)
+            ctx = BootstrapContext.from_data_root(settings.data_root, run.env_id)
             status_payload = build_passkey_payload(ctx)
             confirmed = int(status_payload.get("confirmed", 0) or 0)
             required = int(status_payload.get("required", 0) or 0)
@@ -1227,7 +1221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="run env_id unavailable"
             )
-        ctx = BootstrapContext.from_data_root(settings.data_root, run.env_id, run.remotes)
+        ctx = BootstrapContext.from_data_root(settings.data_root, run.env_id)
         payload = build_passkey_payload(ctx)
         note = payload.get("note")
         if note:
@@ -1481,7 +1475,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .backup import validate_env_id
         validate_env_id(env_id)
         try:
-            ctx = BootstrapContext.from_data_root(settings.data_root, env_id, remotes=[])
+            ctx = BootstrapContext.from_data_root(settings.data_root, env_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         # Returns the ca-cert payload (present/note/pem/filename/requirement_note)

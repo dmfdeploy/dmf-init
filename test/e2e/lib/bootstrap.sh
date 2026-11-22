@@ -79,20 +79,6 @@ payload = {
     "env_id": os.environ["ENV_ID"],
     "passphrase": os.environ["PASSPHRASE"],
     "passphrase_confirm": os.environ["PASSPHRASE"],
-    "remotes": [
-        {
-            "name": "backup-a",
-            "type": "alias",
-            "options": {"remote": os.environ["BACKUP_A"]},
-            "destination_prefix": "backups",
-        },
-        {
-            "name": "backup-b",
-            "type": "alias",
-            "options": {"remote": os.environ["BACKUP_B"]},
-            "destination_prefix": "backups",
-        },
-    ],
 }
 print(json.dumps(payload))
 PY

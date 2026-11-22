@@ -7,5 +7,5 @@ This product packages, but does not vendor, the dmfdeploy platform env tooling
 (dmf-runbooks). Those are pulled at image-build time from their own
 repositories; each is governed by its own LICENSE. The container image
 additionally bundles third-party tools (OpenTofu, Ansible, sops, age,
-rclone, kubectl, Python/FastAPI, React) — each governed by its own
+kubectl, Python/FastAPI, React) — each governed by its own
 upstream license.

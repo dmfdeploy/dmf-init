@@ -27,7 +27,7 @@ jobs:
       - run: |
           ruff check .
       - name: Install age (backup/restore tests invoke age-keygen)
-        run: sudo apt-get update && sudo apt-get install -y age rclone
+        run: sudo apt-get update && sudo apt-get install -y age
       - run: |
           pytest
       # Manage passes its own argv to dmf-env scripts. Run that argv against

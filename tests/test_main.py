@@ -243,7 +243,7 @@ def test_scrub_token_from_url() -> None:
     assert scrub_token_from_url("/?token=abc123&foo=bar") == "/?foo=bar"
 
 
-def test_bootstrap_start_uses_real_graph_and_requires_two_remotes(
+def test_bootstrap_start_uses_real_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = tmp_path / "data"
@@ -291,10 +291,7 @@ def test_bootstrap_start_uses_real_graph_and_requires_two_remotes(
         captured["checkpoint_ctx"] = ctx
 
         def checkpoint_fn(run, n):
-            return {
-                "artifact_name": f"artifact-{n}",
-                "remotes": [remote.name for remote in run.remotes],
-            }
+            return {"artifact_name": f"artifact-{n}"}
 
         return checkpoint_fn
 

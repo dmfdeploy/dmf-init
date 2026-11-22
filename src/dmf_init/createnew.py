@@ -9,7 +9,7 @@ import signal
 import subprocess
 import tempfile
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -53,19 +53,6 @@ class CreateNewBackupRequest(BaseModel):
     passphrase_confirm: str
 
 
-class CreateNewRenderResult(BaseModel):
-    env_id: str
-    render_dir: str
-    age_key_path: str
-    answers_file_path: str
-    ssh_private_key_path: str
-    metadata_path: str
-    render_log_path: str
-    profile: str = SANDBOX_PROFILE
-    schema_version: int = ANSWER_SCHEMA_VERSION
-    output_lines: list[str] = Field(default_factory=list)
-
-
 class CreateNewBackupResponse(BaseModel):
     env_id: str
     backup: BackupResult
@@ -87,7 +74,6 @@ class _CreateNewState:
     ssh_private_key_path: Path | None = None
     metadata_path: Path | None = None
     render_log_path: Path | None = None
-    output_lines: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -278,125 +264,6 @@ def _write_render_metadata(state: _CreateNewState) -> Path:
     return metadata_path
 
 
-def _finalise_render_state(state: _CreateNewState) -> CreateNewRenderResult:
-    assert state.env_id is not None
-    assert state.render_dir is not None
-    state.metadata_path = _write_render_metadata(state)
-    return CreateNewRenderResult(
-        env_id=state.env_id,
-        render_dir=str(state.render_dir),
-        age_key_path=str(state.age_key_path),
-        answers_file_path=str(state.answers_file_path),
-        ssh_private_key_path=str(state.ssh_private_key_path),
-        metadata_path=str(state.metadata_path),
-        render_log_path=str(state.render_log_path),
-        output_lines=state.output_lines,
-    )
-
-
-def run_render_create_new(
-    data_root: Path, request: CreateNewRenderRequest
-) -> CreateNewRenderResult:
-    state = _CreateNewState(
-        data_root=data_root,
-        work_dir=_prepare_work_dir(data_root),
-        render_request=request,
-    )
-    wizard_path = _require_runtime_repo(data_root)
-    state.render_log_path = state.work_dir / "render.log"
-    state.age_key_path = state.work_dir / "age" / "keys.txt"
-    state.answers_file_path = state.work_dir / "answers.yaml"
-    state.ssh_private_key_path = state.work_dir / "ssh" / "sandbox-node.key"
-    _generate_age_key(state.age_key_path)
-    _write_file(state.ssh_private_key_path, request.sandbox.ssh_private_key)
-    key_error = _validate_ssh_private_key(state.ssh_private_key_path)
-    if key_error:
-        raise CreateNewError(key_error)
-    _write_file(
-        state.answers_file_path,
-        _answers_file_contents(request, state.ssh_private_key_path),
-    )
-
-    wizard_env = os.environ.copy()
-    wizard_env["DMF_DATA_ROOT"] = str(data_root)
-    wizard_env["SOPS_AGE_KEY_FILE"] = str(state.age_key_path)
-    wizard_env["NO_COLOR"] = "1"
-    wizard_env["TERM"] = "dumb"
-
-    preexisting_envs = {
-        entry.name
-        for entry in (data_root / "envs").iterdir()
-        if entry.is_dir()
-    } if (data_root / "envs").exists() else set()
-
-    proc = subprocess.Popen(
-        [str(wizard_path), "--non-interactive", str(state.answers_file_path)],
-        cwd=wizard_path.parent,
-        env=wizard_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert proc.stdout is not None
-    with state.render_log_path.open("w", encoding="utf-8") as log_file:
-        for raw_line in proc.stdout:
-            log_file.write(raw_line)
-            log_file.flush()
-            redacted = redact_text(
-                raw_line.rstrip("\n"),
-                [
-                    request.operator.username,
-                    request.operator.email,
-                    request.operator.display,
-                    request.sandbox.ssh_private_key,
-                ],
-            )
-            if redacted:
-                state.output_lines.append(redacted)
-            env_id = _parse_env_id(raw_line)
-            if env_id and state.env_id is None:
-                state.env_id = env_id
-        return_code = proc.wait()
-
-    if return_code != 0:
-        state.error = f"init-wizard failed with exit code {return_code}"
-        raise CreateNewError(state.error)
-
-    if state.env_id is None:
-        current_envs = {
-            entry.name
-            for entry in (data_root / "envs").iterdir()
-            if entry.is_dir()
-        } if (data_root / "envs").exists() else set()
-        created_envs = sorted(current_envs - preexisting_envs)
-        if len(created_envs) == 1:
-            state.env_id = created_envs[0]
-        else:
-            raise CreateNewError("could not determine env_id from init-wizard output")
-
-    # P1-2: validate env_id BEFORE any path construction
-    from .backup import validate_env_id
-    validate_env_id(state.env_id)
-
-    final_render_dir = data_root / "runs" / state.env_id
-    state.ssh_private_key_path = _finalize_sandbox_render_artifacts(
-        data_root=data_root,
-        env_id=state.env_id,
-        request=request,
-        work_dir=state.work_dir,
-        answers_file_path=state.answers_file_path,
-    )
-    if final_render_dir.exists():
-        shutil.rmtree(final_render_dir)
-    shutil.move(str(state.work_dir), str(final_render_dir))
-    state.render_dir = final_render_dir
-    state.age_key_path = final_render_dir / "age" / "keys.txt"
-    state.answers_file_path = final_render_dir / "answers.yaml"
-    state.render_log_path = final_render_dir / "render.log"
-    return _finalise_render_state(state)
-
-
 def _validate_ssh_private_key(path: Path) -> str | None:
     """Cheap fail-fast parse check (ssh-keygen -y) before the wizard runs.
 
@@ -506,8 +373,6 @@ def _stream_render_create_new_inner(
                         request.sandbox.ssh_private_key,
                     ],
                 )
-                if redacted:
-                    state.output_lines.append(redacted)
                 env_id = _parse_env_id(raw_line)
                 if env_id and state.env_id is None:
                     state.env_id = env_id
@@ -567,7 +432,7 @@ def _stream_render_create_new_inner(
     state.age_key_path = final_render_dir / "age" / "keys.txt"
     state.answers_file_path = final_render_dir / "answers.yaml"
     state.render_log_path = final_render_dir / "render.log"
-    _finalise_render_state(state)
+    state.metadata_path = _write_render_metadata(state)
     yield json.dumps(
         {
             "event": "complete",
@@ -612,7 +477,3 @@ def run_backup_create_new(
         ),
     )
     return CreateNewBackupResponse(env_id=request.env_id, backup=backup_result)
-
-
-def ensure_render_result(data_root: Path, request: CreateNewRenderRequest) -> CreateNewRenderResult:
-    return run_render_create_new(data_root, request)

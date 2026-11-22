@@ -26,8 +26,8 @@ main() {
   ssh-keygen -R "$NEW_IP" >/dev/null 2>&1 || true
 
   log "reset: wiping tmpfs data roots"
-  rm -rf "$DMF_DATA_ROOT" "$BACKUP_A" "$BACKUP_B" "$REPOSRC_DIR"
-  mkdir -p "$BACKUP_A" "$BACKUP_B" "$REPOSRC_DIR"
+  rm -rf "$DMF_DATA_ROOT" "$REPOSRC_DIR"
+  mkdir -p "$REPOSRC_DIR"
 
   log "reset: rebuilding reposrc symlinks"
   for repo in $REPOS; do

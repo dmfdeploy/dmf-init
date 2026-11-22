@@ -13,7 +13,6 @@ from dmf_init.backup import (
     BackupIntegrityError,
     BackupManifest,
     BackupManifestMeta,
-    RcloneRemoteSpec,
     backup,
 )
 from dmf_init.main import create_app
@@ -28,7 +27,7 @@ from dmf_init.settings import Settings
 
 
 def _require_tools() -> None:
-    missing = [tool for tool in ("rclone", "age", "age-keygen") if shutil.which(tool) is None]
+    missing = [tool for tool in ("age", "age-keygen") if shutil.which(tool) is None]
     if missing:
         pytest.skip(f"missing tools: {', '.join(missing)}")
 
@@ -40,25 +39,6 @@ def _run_age_keygen(key_path: Path) -> None:
         capture_output=True,
         text=True,
     )
-
-
-def _write_rclone_alias_config(config_path: Path, remote_a: Path, remote_b: Path) -> None:
-    config_path.write_text(
-        "\n".join(
-            [
-                "[remote-a]",
-                "type = alias",
-                f"remote = {remote_a}",
-                "",
-                "[remote-b]",
-                "type = alias",
-                f"remote = {remote_b}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    config_path.chmod(0o600)
 
 
 def _seed_env_tree(env_dir: Path) -> None:
@@ -77,7 +57,7 @@ def _build_backup_fixture(
     *,
     passphrase: str = "correct horse battery staple",
     with_sandbox_ssh_key: bool = False,
-) -> tuple[Path, str, list[RcloneRemoteSpec], str, BackupManifest]:
+) -> tuple[Path, str, str, BackupManifest, Path]:
     data_root = tmp_path / "data"
     env_id = "sandbox-alpha"
     env_dir = data_root / "envs" / env_id
@@ -111,34 +91,11 @@ def _build_backup_fixture(
     age_key_path = data_root / "backup.age.key"
     _run_age_keygen(age_key_path)
 
-    remote_a = tmp_path / "remote-a"
-    remote_b = tmp_path / "remote-b"
-    remote_a.mkdir()
-    remote_b.mkdir()
-    rclone_config_path = tmp_path / "rclone.conf"
-    _write_rclone_alias_config(rclone_config_path, remote_a, remote_b)
-
-    remotes = [
-        RcloneRemoteSpec(
-            name="remote-a",
-            type="alias",
-            options={"remote": str(remote_a)},
-            destination_prefix="backups",
-        ),
-        RcloneRemoteSpec(
-            name="remote-b",
-            type="alias",
-            options={"remote": str(remote_b)},
-            destination_prefix="backups",
-        ),
-    ]
-
     backup_result = backup(
         env_dir=env_dir,
         age_key_path=age_key_path,
         answers_file=answers_file,
         passphrase=passphrase,
-        remotes=remotes,
         manifest_meta=BackupManifestMeta(
             env_id=env_id,
             profile="sandbox-single-node",
@@ -147,16 +104,15 @@ def _build_backup_fixture(
         ),
     )
     assert Path(backup_result.artifact_path).exists()
-    assert Path(backup_result.rclone_config_path).exists()
     assert Path(backup_result.manifest_path).exists()
     artifact_path = Path(backup_result.artifact_path)
-    return (data_root, env_id, remotes, backup_result.artifact_name,
+    return (data_root, env_id, backup_result.artifact_name,
             backup_result.manifest, artifact_path)
 
 
 def test_manage_restore_relocates_env_and_cleans_restore_root(tmp_path: Path) -> None:
     _require_tools()
-    _source_root, env_id, remotes, artifact_name, _, artifact_path = _build_backup_fixture(
+    _source_root, env_id, artifact_name, _, artifact_path = _build_backup_fixture(
         tmp_path,
         with_sandbox_ssh_key=True,
     )
@@ -210,7 +166,7 @@ def test_manage_restore_relocates_env_and_cleans_restore_root(tmp_path: Path) ->
 
 def test_manage_restore_wrong_passphrase_raises(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
 
     with pytest.raises(BackupDecryptError):
         run_manage_restore(
@@ -224,7 +180,7 @@ def test_manage_restore_wrong_passphrase_raises(tmp_path: Path) -> None:
 
 def test_manage_restore_integrity_mismatch_raises(tmp_path: Path) -> None:
     _require_tools()
-    data_root, _, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
     corrupt_path = artifact_path
     # Bit-flip the last byte: writing a fixed literal could coincide with the
     # existing byte (~1/256 per run, age output is randomized) and leave the
@@ -244,7 +200,7 @@ def test_manage_restore_integrity_mismatch_raises(tmp_path: Path) -> None:
 
 def test_doctor_run_redacts_seeded_openbao_secrets(tmp_path: Path) -> None:
     _require_tools()
-    data_root, env_id, _, _, manifest, _ = _build_backup_fixture(tmp_path)
+    data_root, env_id, _, manifest, _ = _build_backup_fixture(tmp_path)
     repos_bin = data_root / "repos" / "dmf-env" / "bin"
     repos_bin.mkdir(parents=True, exist_ok=True)
     (repos_bin / "bootstrap-secrets.sh").write_text("#!/bin/sh\nset -eu\n", encoding="utf-8")
@@ -284,7 +240,7 @@ def test_doctor_run_redacts_seeded_openbao_secrets(tmp_path: Path) -> None:
 
 def test_manage_endpoints_map_errors(tmp_path: Path) -> None:
     _require_tools()
-    data_root, env_id, _, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    data_root, env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
     repos_bin = data_root / "repos" / "dmf-env" / "bin"
     repos_bin.mkdir(parents=True, exist_ok=True)
     (repos_bin / "bootstrap-secrets.sh").write_text("#!/bin/sh\nset -eu\n", encoding="utf-8")

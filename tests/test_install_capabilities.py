@@ -163,7 +163,6 @@ def test_bootstrap_start_refuses_a_stale_checkout(tmp_path: Path) -> None:
             "env_id": "sandbox-alpha",
             "passphrase": "correct horse battery staple",
             "passphrase_confirm": "correct horse battery staple",
-            "remotes": [],
         },
     )
     assert response.status_code == 409
@@ -198,7 +197,6 @@ def test_retry_refuses_a_stale_checkout_for_a_live_run(tmp_path: Path) -> None:
         steps=[CommandStep(id="pre-seed", argv=["ignored"])],
         env_id="sandbox-alpha",
         passphrase="x",
-        remotes=[],
         setup_request_gate=False,
     )
     run.final_status = "error"
@@ -288,7 +286,6 @@ def test_fetch_is_refused_while_a_run_is_paused_at_a_gate(
             "env_id": "sandbox-alpha",
             "passphrase": "correct horse battery staple",
             "passphrase_confirm": "correct horse battery staple",
-            "remotes": [],
         },
     )
     assert started.status_code == 200

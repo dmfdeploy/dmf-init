@@ -26,13 +26,10 @@ This section is the one place for development and test commands. The README and
 - **Python 3.12 or later.** CI tests 3.12.
 - **Node.js 22.** CI and the `Dockerfile` use Node 22, which includes npm 10.
   You need it only for the frontend.
-- **`age` and `rclone`.** The backup and restore tests call `age-keygen` and
-  `rclone`. The image ships `age` but not `rclone`: only the tests exercise
-  the optional rclone remote path in `backup.py`. Install both tools with your
-  package manager, for example
-  `brew install age rclone` or `sudo apt-get install age rclone`. CI installs
-  both. See [Run ruff and pytest](#run-ruff-and-pytest) for what happens
-  when they are missing.
+- **`age`.** The backup and restore tests call `age-keygen`. The image ships
+  `age`. Install it with your package manager, for example `brew install age`
+  or `sudo apt-get install age`. CI installs it. See [Run ruff and
+  pytest](#run-ruff-and-pytest) for what happens when it is missing.
 - **Docker with BuildKit.** Docker 23.0 or later. You need it only for the
   image build. See [Checks that need more than a
   checkout](#checks-that-need-more-than-a-checkout).
@@ -68,13 +65,13 @@ takes a second. CI runs `ruff` first, then `pytest`.
 
 Some tests skip when a tool or variable is missing:
 
-- **Without `age` or `rclone`,** the backup and restore tests skip with
-  `missing tools` and name the missing tool.
+- **Without `age`,** the backup and restore tests skip with `missing tools`
+  and name the missing tool.
 - **Without `DMF_TEST_DMF_ENV_REPO`,** three tests skip. They use scripts from a
   checkout of the [dmf-env](https://github.com/dmfdeploy/dmf-env) repo, and the
   variable holds the path of that checkout.
 
-A plain `pytest` run on a machine with `age` and `rclone` therefore reports
+A plain `pytest` run on a machine with `age` therefore reports
 three skipped tests. This is the normal result, and CI's first `pytest` step
 skips the same three. CI then sets the variable and runs all three, against a
 fresh dmf-env clone, so a flag rename in dmf-env fails there. To run them:

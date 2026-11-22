@@ -159,7 +159,6 @@ def build_action_run(
         run_id=secrets.token_urlsafe(8),
         steps=steps,
         passphrase=session.passphrase,
-        remotes=[],
         executor=executor or SubprocessExecutor(),
         checkpoint_fn=make_manage_checkpoint_fn(session, data_root),
     )

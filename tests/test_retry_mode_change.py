@@ -57,7 +57,7 @@ class _Harness:
 
 
 def _graph(h: _Harness, gate: bool) -> list[str]:
-    ctx = main.BootstrapContext.from_data_root(h.root, ENV, remotes=[])
+    ctx = main.BootstrapContext.from_data_root(h.root, ENV)
     return [s.id for s in main.build_bootstrap_steps(ctx, setup_request_gate=gate)]
 
 
@@ -174,7 +174,7 @@ def test_journal_records_the_mode_for_every_terminal_cursor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: bool
 ) -> None:
     h = _Harness(tmp_path, monkeypatch)
-    ctx = main.BootstrapContext.from_data_root(h.root, ENV, remotes=[])
+    ctx = main.BootstrapContext.from_data_root(h.root, ENV)
     for step in _graph(h, mode):
         run = BootstrapRun(
             run_id="r",
@@ -198,7 +198,7 @@ def test_fresh_run_writes_its_own_cursor_and_inherits_nothing(
         setup_request_gate=False,
         completed_step_ids=["configure"],
     )
-    ctx = main.BootstrapContext.from_data_root(h.root, ENV, remotes=[])
+    ctx = main.BootstrapContext.from_data_root(h.root, ENV)
     fresh = BootstrapRun(
         run_id="new",
         env_id=ENV,
@@ -234,7 +234,7 @@ def test_in_memory_retry_checks_the_recorded_mode(
     code: int,
 ) -> None:
     h = _Harness(tmp_path, monkeypatch)
-    ctx = main.BootstrapContext.from_data_root(h.root, ENV, remotes=[])
+    ctx = main.BootstrapContext.from_data_root(h.root, ENV)
     run = BootstrapRun(
         run_id="mem",
         env_id=ENV,
