@@ -177,15 +177,16 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 ```
 
 dmf-init reuses the repos already in `<data root>/repos` and does not fetch them
-again. It checks that the `dmf-infra` checkout lists the install capabilities
-dmf-init needs (`k3s-lab-bootstrap/install-capabilities.txt`) before it starts or
-retries an install. If the checkout is older, dmf-init refuses with a message that
-names the missing capability. Remove `<data root>/repos` so dmf-init fetches current
-repos, then start again.
+again. Before it starts or retries an install, or runs a Manage upgrade or
+playbook rerun, it checks that the `dmf-infra` checkout declares the install
+capabilities dmf-init needs (`k3s-lab-bootstrap/install-capabilities.txt`). If it
+doesn't, dmf-init refuses and names the checkout, its ref and the missing
+capability. The selected ref must include the capability: remove
+`<data root>/repos` to fetch the current refs, or select a ref that includes it.
 
-A run that failed at a step that no longer exists, such as `seed-bao`, can't be
-retried. Environments started before that change are rebuilt: remove the
-environment and install again.
+Environments and runs started before this change aren't supported, so remove them
+and install again. A retry of a run that failed at the removed `seed-bao` step
+says so and refuses.
 
 Multi-arch (amd64 + arm64), published by
 [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml).

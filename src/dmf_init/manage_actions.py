@@ -25,6 +25,8 @@ _RETIRED_ACTIONS = {
     ),
 }
 _ACTIONS = ("rerun-playbook", "upgrade-in-place", "teardown")
+# Actions that run dmf-infra playbooks from the cached checkout.
+PLAYBOOK_ACTIONS = ("rerun-playbook", "upgrade-in-place")
 
 
 def validate_action(action: str) -> None:

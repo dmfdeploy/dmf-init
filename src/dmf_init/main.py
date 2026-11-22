@@ -72,7 +72,7 @@ from .manage import (
     build_env_doctor_run,
     run_manage_restore,
 )
-from .manage_actions import build_action_run, validate_action
+from .manage_actions import PLAYBOOK_ACTIONS, build_action_run, validate_action
 from .orchestrate import (
     SETUP_REQUEST_PAUSE_ID,
     BootstrapRun,
@@ -1609,6 +1609,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc),
             ) from exc
+        if payload.action in PLAYBOOK_ACTIONS:
+            _require_current_repos(settings.data_root)
         # P1-1: Reserve under lock; ANY pre-spawn failure clears.
         with app.state.bootstrap_lock:
             if session.env_id in app.state.active_runs:

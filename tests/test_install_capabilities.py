@@ -86,6 +86,16 @@ def test_refusal_names_the_checkout_and_the_capability(tmp_path: Path) -> None:
     assert f"Remove {tmp_path / 'repos'}" in message
 
 
+def test_refusal_names_the_ref_and_offers_a_ref_that_includes_it(tmp_path: Path) -> None:
+    _git_checkouts(tmp_path)
+    with pytest.raises(StaleRuntimeReposError) as raised:
+        require_install_capabilities(tmp_path / "repos")
+    message = str(raised.value)
+    assert "ref " in message
+    assert "select a ref that includes it" in message
+    assert "to fetch the current refs" in message
+
+
 # -- ensure_runtime_repos: reuse and fresh clone ------------------------------
 
 

@@ -4,10 +4,12 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from install_capabilities import write_install_capabilities
 
 from dmf_init.backup import (
     BackupManifestMeta,
@@ -19,6 +21,7 @@ from dmf_init.main import create_app
 from dmf_init.manage import ManageError, ManageRestoreRequest, run_manage_restore
 from dmf_init.manage_actions import build_action_argv, build_action_run
 from dmf_init.orchestrate import CheckpointStep, CommandStep, run_worker
+from dmf_init.repos import INSTALL_CAPABILITIES_FILE
 from dmf_init.settings import Settings
 
 
@@ -92,6 +95,7 @@ def _build_remote_specs(tmp_path: Path) -> tuple[list[RcloneRemoteSpec], Path]:
 
 
 def _seed_repos_bin(data_root: Path) -> None:
+    write_install_capabilities(data_root)
     bin_dir = data_root / "repos" / "dmf-env" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     scripts = {
@@ -486,3 +490,69 @@ def test_upgrade_in_place_script_passes_its_own_confirmation(tmp_path: Path) -> 
     assert result.returncode == 0, result.stdout + result.stderr
     assert argv[1:] == [session.env_id, "--yes"]
     assert "bootstrap-sandbox-provision-pre-seed.yml" in calls.read_text(encoding="utf-8")
+
+
+def _endpoint_session(tmp_path: Path, *, stale: bool):
+    """Restore a Manage session through the API; optionally leave a stale dmf-infra."""
+    data_root, _env_id, _, _, artifact_path = _build_backup_fixture(tmp_path)
+    _seed_repos_bin(data_root)
+    if stale:
+        (data_root / "repos" / INSTALL_CAPABILITIES_FILE).unlink()
+    app = create_app(Settings(data_root=data_root, tls_enabled=False))
+    client = TestClient(app)
+    token = app.state.launch_token_state.token
+    client.get(f"/?token={token}", follow_redirects=False)
+    with open(artifact_path, "rb") as f:
+        restored = client.post(
+            "/api/manage/restore",
+            files={"file": ("backup.tar.age", f, "application/octet-stream")},
+            data={"passphrase": "correct horse battery staple"},
+        )
+    assert restored.status_code == 200
+    return client, app, data_root, restored.json()["session_id"]
+
+
+@pytest.mark.parametrize(
+    "action, params",
+    [
+        ("upgrade-in-place", None),
+        ("rerun-playbook", {"playbook": "dmf-infra/k3s-lab-bootstrap/example.yml"}),
+    ],
+)
+def test_playbook_actions_refuse_a_stale_checkout(
+    tmp_path: Path, action: str, params: dict | None
+) -> None:
+    _require_tools()
+    client, app, data_root, session_id = _endpoint_session(tmp_path, stale=True)
+    playbook = data_root / "repos" / "dmf-infra" / "k3s-lab-bootstrap" / "example.yml"
+    playbook.parent.mkdir(parents=True, exist_ok=True)
+    playbook.write_text("---\n", encoding="utf-8")
+
+    response = client.post(
+        "/api/manage/action/start",
+        json={"session_id": session_id, "action": action, "params": params},
+    )
+
+    assert response.status_code == 409
+    assert "openbao-seed-in-install" in response.json()["detail"]
+    assert not app.state.active_runs
+
+
+def test_teardown_and_doctor_run_with_a_stale_checkout(tmp_path: Path) -> None:
+    _require_tools()
+    client, app, _data_root, session_id = _endpoint_session(tmp_path, stale=True)
+
+    doctor = client.post("/api/manage/doctor", json={"session_id": session_id})
+    assert "openbao-seed-in-install" not in str(doctor.json())
+
+    # Wait out the doctor run so the env is free for the next action.
+    for run in list(app.state.bootstrap_runs.values()):
+        deadline = time.time() + 20
+        while run.final_status is None and time.time() < deadline:
+            time.sleep(0.05)
+
+    teardown = client.post(
+        "/api/manage/action/start",
+        json={"session_id": session_id, "action": "teardown"},
+    )
+    assert teardown.status_code == 200

@@ -64,17 +64,32 @@ def missing_install_capabilities(repos_root: Path) -> list[str]:
     return [cap for cap in REQUIRED_INSTALL_CAPABILITIES if cap not in listed]
 
 
+def _checkout_ref(checkout: Path) -> str:
+    """Name the branch or commit the checkout is on, for the refusal message."""
+    for args in (["rev-parse", "--abbrev-ref", "HEAD"], ["rev-parse", "--short", "HEAD"]):
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(checkout), *args],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        if out and out != "HEAD":
+            return out
+    return "unknown"
+
+
 def require_install_capabilities(repos_root: Path) -> None:
-    """Raise StaleRuntimeReposError if the dmf-infra checkout is too old to run."""
+    """Raise StaleRuntimeReposError if the dmf-infra checkout lacks a needed capability."""
     missing = missing_install_capabilities(repos_root)
     if not missing:
         return
     checkout = repos_root / "dmf-infra"
     raise StaleRuntimeReposError(
-        f"The dmf-infra checkout at {checkout} is out of date. It does not list "
-        f"the install capability {', '.join(missing)}, so an install run from it "
-        f"would skip a step. Remove {repos_root} so dmf-init fetches current "
-        "repos, then start again."
+        f"The dmf-infra checkout at {checkout} (ref {_checkout_ref(checkout)}) does "
+        f"not declare the install capability {', '.join(missing)}. The selected ref "
+        f"must include it. Remove {repos_root} to fetch the current refs, or select "
+        "a ref that includes it, then start again."
     )
 
 
