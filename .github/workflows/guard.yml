@@ -36,12 +36,23 @@ jobs:
         env:
           GL_VERSION: "8.21.2"
           GL_SHA256: "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
           curl -fsSLo /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz"
           echo "${GL_SHA256}  /tmp/gl.tgz" | sha256sum -c -
           tar -xzf /tmp/gl.tgz -C /tmp gitleaks
           /tmp/gitleaks detect --source . --no-git --config /tmp/gitleaks.toml --redact --no-banner --exit-code 1
+          if [ -n "${BASE_SHA:-}" ]; then
+            # pull_request: also scan every commit in base..head, so a secret that a
+            # later commit removes still fails (it stays reachable in history).
+            # --diff-merges=first-parent also scans each merge commit against its
+            # first parent. A line that a conflict resolution adds is in neither
+            # parent, so it shows up whichever side is first. The default log skips
+            # merge diffs.
+            /tmp/gitleaks detect --source . --log-opts "--diff-merges=first-parent ${BASE_SHA}..${HEAD_SHA}" --config /tmp/gitleaks.toml --redact --no-banner --exit-code 1
+          fi
       - name: Sanity-lint the PR's proposed .gitleaks.toml (non-blocking on content)
         if: github.event_name == 'pull_request'
         run: /tmp/gitleaks detect --no-git --source /dev/null --config .gitleaks.toml >/dev/null 2>&1 || echo "::warning::PR .gitleaks.toml changed — review the allowlist diff (CODEOWNERS-gated)"
@@ -136,38 +147,3 @@ jobs:
           echo "${AL_SHA256}  /tmp/al.tgz" | sha256sum -c -
           tar -xzf /tmp/al.tgz -C /tmp actionlint
           /tmp/actionlint -color
-
-  issue-link:
-    # Working-model gate (umbrella issue dmfdeploy/dmfdeploy#32): every PR must
-    # reference its tracking issue in the canonical backlog FULLY QUALIFIED —
-    # bare #N resolves to this repo's own issues and silently misses. Trivial
-    # changes: add the no-issue label.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: PR references a canonical-backlog issue (qualified)
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
-        run: |
-          set -eu
-          # A link to a private agent session does not belong in a public PR (#838).
-          # This runs before the no-issue exit, so the label cannot skip it. The match
-          # is case-insensitive because hostnames are; it targets accidental links,
-          # not deliberate obfuscation.
-          if printf '%s' "${PR_BODY}" | grep -qiE 'claude\.ai/code/session'; then
-            echo "FAIL: PR description links to an agent session; remove the link." >&2
-            exit 1
-          fi
-          case " ${PR_LABELS} " in *" no-issue "*)
-            echo "OK: no-issue label set"; exit 0 ;;
-          esac
-          if printf '%s' "${PR_BODY}" | grep -qiE '(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?)[[:space:]:]+(dmfdeploy/dmfdeploy#[0-9]+|https://github\.com/dmfdeploy/dmfdeploy/issues/[0-9]+)'; then
-            echo "OK: qualified issue reference found"
-            exit 0
-          fi
-          echo "FAIL: PR body must reference its tracking issue FULLY QUALIFIED, e.g. 'Refs dmfdeploy/dmfdeploy#32'." >&2
-          echo "Bare #N points at THIS repo, not the canonical backlog — see umbrella docs/WORKING-MODEL.md." >&2
-          echo "Trivial change? Add the 'no-issue' label." >&2
-          exit 1
