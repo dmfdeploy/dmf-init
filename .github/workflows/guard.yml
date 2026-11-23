@@ -154,8 +154,18 @@ jobs:
           # Dependabot updates a version comment only when nothing follows it.
           # Put any note on its own line above the "uses:" line.
           # The comment must be exactly the version, such as "# v4.2.2" or "# v4".
-          if grep -rnE --include='*.yml' --include='*.yaml' 'uses:[^#]*@[0-9a-f]{40}[[:space:]]+#' .github \
-            | grep -vE '@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?[[:space:]]*$'; then
-            echo "::error::a pinned action's comment must be only its version; move any note to its own line above"
-            exit 1
-          fi
+          python3 - <<'PY'
+          import pathlib, re, sys
+          pin = re.compile(r"""^\s*(?:-\s+)?uses:\s*["']?[^\s"'#]+@[0-9a-f]{40}["']?\s+#(.*)$""")
+          version = re.compile(r"\s*v\d+(?:\.\d+)*(?:-[0-9A-Za-z.]+)?\s*")
+          bad = False
+          for path in sorted(pathlib.Path(".github").rglob("*")):
+              if path.suffix not in (".yml", ".yaml") or not path.is_file():
+                  continue
+              for n, line in enumerate(path.read_text().splitlines(), 1):
+                  m = pin.match(line)
+                  if m and not version.fullmatch(m.group(1)):
+                      print(f"::error file={path},line={n}::a pinned action's comment must be only its version; move any note to its own line above")
+                      bad = True
+          sys.exit(1 if bad else 0)
+          PY
