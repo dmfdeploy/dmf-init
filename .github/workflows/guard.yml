@@ -155,7 +155,7 @@ jobs:
           # Put any note on its own line above the "uses:" line.
           # The comment must be exactly the version, such as "# v4.2.2" or "# v4".
           if grep -rnE --include='*.yml' --include='*.yaml' 'uses:[^#]*@[0-9a-f]{40}[[:space:]]+#' .github \
-            | grep -vE '#[[:space:]]*v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?[[:space:]]*$'; then
+            | grep -vE '@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?[[:space:]]*$'; then
             echo "::error::a pinned action's comment must be only its version; move any note to its own line above"
             exit 1
           fi
