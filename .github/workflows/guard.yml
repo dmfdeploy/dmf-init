@@ -16,7 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4.2.2 — full history for the PR commit range
+      # Full history for the PR commit range
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -147,3 +148,12 @@ jobs:
           echo "${AL_SHA256}  /tmp/al.tgz" | sha256sum -c -
           tar -xzf /tmp/al.tgz -C /tmp actionlint
           /tmp/actionlint -color
+
+      - name: Pinned-action version comments stand alone
+        run: |
+          # Dependabot updates a version comment only when nothing follows it.
+          # Put any note on its own line above the "uses:" line.
+          if grep -rnE --include='*.yml' --include='*.yaml' 'uses:[^#]*@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9][^[:space:]]*[[:space:]]+[^[:space:]]' .github; then
+            echo "::error::text follows a pinned action's version comment; move it to its own line above"
+            exit 1
+          fi
