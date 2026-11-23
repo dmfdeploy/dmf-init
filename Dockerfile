@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM node:22-slim AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:26-slim AS frontend-builder
 WORKDIR /build
 
 COPY frontend/package*.json ./frontend/
