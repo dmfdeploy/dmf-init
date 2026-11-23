@@ -10,7 +10,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM --platform=$TARGETPLATFORM python:3.12-slim
+FROM --platform=$TARGETPLATFORM python:3.15-slim
 LABEL org.opencontainers.image.title="dmf-init" \
       org.opencontainers.image.description="DMF Init local bootstrap container"
 
