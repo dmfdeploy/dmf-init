@@ -64,7 +64,11 @@ updates:
       - "no-issue"
     commit-message:
       prefix: "build(deps)"
-    # Major upgrades are done on purpose, as their own changes.
+    # A new Python minor version is a language upgrade done on purpose, tracked
+    # in dmfdeploy/dmfdeploy#982. Major upgrades are done on purpose, as their
+    # own changes.
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]
