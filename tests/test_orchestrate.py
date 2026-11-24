@@ -37,12 +37,33 @@ class FakeExecutor:
 
 
 def _wait_for(predicate, timeout: float = 2.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    # A monotonic clock keeps a wall-clock step on a CI runner from ending the
+    # wait early.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(0.01)
     raise AssertionError("timed out waiting for condition")
+
+
+def _wait_for_terminal(run: BootstrapRun, worker: threading.Thread, timeout: float = 30.0) -> str:
+    """Wait for the run's terminal event and return its name.
+
+    The worker finishes in milliseconds, so the generous timeout only matters
+    when something is wrong. Waiting on the run's own condition, rather than
+    for `complete` alone, also lets an `error` event end the wait at once. A
+    timeout reports the events and the worker state so a failure shows its cause.
+    """
+    with run.cond:
+        finished = run.cond.wait_for(lambda: run.terminal, timeout=timeout)
+        events = list(run.events)
+    assert finished, (
+        f"run did not reach a terminal event within {timeout}s; "
+        f"worker alive={worker.is_alive()}; events={events}"
+    )
+    assert run.final_status is not None
+    return run.final_status
 
 
 def _decode_stream(run: BootstrapRun, start_index: int = 0) -> list[dict[str, Any]]:
@@ -92,7 +113,8 @@ def test_happy_path_redacts_pause_and_completes() -> None:
         assert worker.is_alive()
         assert not any(ev["event"] == "complete" for ev in run.events)
         run.resume("ca")
-        _wait_for(lambda: any(ev["event"] == "complete" for ev in run.events))
+        outcome = _wait_for_terminal(run, worker)
+        assert outcome == "complete", f"run ended with {outcome}: {run.events}"
         tail = [json.loads(item) for item in stream]
     finally:
         stream.close()
