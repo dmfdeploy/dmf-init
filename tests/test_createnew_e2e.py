@@ -294,11 +294,13 @@ def test_inner_generator_kills_wizard_on_close(tmp_path: Path) -> None:
     """Regression: on GeneratorExit the wizard AND ALL its descendants must be
     killed before the caller clears the single-flight flag.
 
-    The fake wizard spawns a BACKGROUND DESCENDANT that writes a sentinel after
-    2 seconds, then the parent sleeps 60s. We advance the generator once
-    (wizard is running), close it, wait 3s, and assert the sentinel was NOT
-    written. With the OLD parent-only kill the descendant survives (FAILS);
-    with the group-kill the descendant dies (PASSES)."""
+    The fake wizard spawns a BACKGROUND DESCENDANT that marks that it started,
+    waits for a release file, then writes a sentinel. The parent sleeps 60s. We
+    wait until the descendant has started, close the generator, release the
+    descendant and assert the sentinel was NOT written. With the OLD
+    parent-only kill the descendant survives (FAILS); with the group-kill the
+    descendant dies (PASSES). Waiting on files instead of a timer keeps a slow
+    machine from letting the descendant run past a fixed delay."""
     import json as _json
     import time
 
@@ -311,6 +313,8 @@ def test_inner_generator_kills_wizard_on_close(tmp_path: Path) -> None:
 
     data_root = tmp_path / "data"
     sentinel = data_root / "SENTINEL"
+    started = data_root / "STARTED"
+    release = data_root / "RELEASE"
 
     # Parent prints one line, spawns a background descendant, then sleeps forever.
     wizard = data_root / "repos" / "dmf-env" / "bin" / "init-wizard.sh"
@@ -318,7 +322,9 @@ def test_inner_generator_kills_wizard_on_close(tmp_path: Path) -> None:
     wizard.write_text(
         "#!/bin/sh\n"
         "echo 'env_id: sandbox-test: started'\n"
-        "sh -c 'sleep 2; touch \"$DMF_DATA_ROOT/SENTINEL\"' &\n"
+        "sh -c 'touch \"$DMF_DATA_ROOT/STARTED\";"
+        " while [ ! -e \"$DMF_DATA_ROOT/RELEASE\" ]; do sleep 0.05; done;"
+        " touch \"$DMF_DATA_ROOT/SENTINEL\"' &\n"
         "sleep 60\n",
         encoding="utf-8",
     )
@@ -347,9 +353,16 @@ def test_inner_generator_kills_wizard_on_close(tmp_path: Path) -> None:
     first_event = _json.loads(next(gen))
     assert first_event["event"] == "log", f"expected log event, got {first_event}"
 
+    # The descendant must exist before the close, or the test proves nothing.
+    deadline = time.monotonic() + 30
+    while not started.exists():
+        assert time.monotonic() < deadline, "descendant never started"
+        time.sleep(0.05)
+
     # Cancel the generator — should trigger GeneratorExit, which kills the
     # entire process group (parent + descendant).
     gen.close()
-    time.sleep(3)  # descendant would have written sentinel at t=2 without group-kill
+    release.touch()
+    time.sleep(1)  # a surviving descendant writes the sentinel within a poll or two
 
     assert not sentinel.exists(), "descendant wrote sentinel after generator was closed"
