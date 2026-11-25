@@ -49,9 +49,9 @@ jobs:
       # it up and restore it. Without the variable they skip.
       - name: Install sops (the init-wizard encrypts the env bundle with it)
         env:
-          SOPS_VERSION: "3.10.2"
-          # From sops-v3.10.2.checksums.txt on the same release.
-          SOPS_SHA256: "79b0f844237bd4b0446e4dc884dbc1765fc7dedc3968f743d5949c6f2e701739"
+          SOPS_VERSION: "3.13.3"
+          # From sops-v3.13.3.checksums.txt on the same release.
+          SOPS_SHA256: "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b"
         run: |
           set -eu
           curl -fsSLo /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
