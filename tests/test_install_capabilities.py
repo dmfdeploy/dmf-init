@@ -78,6 +78,14 @@ def test_file_with_the_capability_passes_and_ignores_comments(tmp_path: Path) ->
     require_install_capabilities(tmp_path / "repos")
 
 
+def test_checkout_with_the_controller_pin_file_is_accepted(tmp_path: Path) -> None:
+    write_install_capabilities(tmp_path)
+    pin = tmp_path / "repos" / "dmf-infra" / "k3s-lab-bootstrap" / "requirements-ansible-core.txt"
+    pin.write_text("ansible-core==2.22.0\n", encoding="utf-8")
+    assert missing_install_capabilities(tmp_path / "repos") == []
+    require_install_capabilities(tmp_path / "repos")
+
+
 def test_refusal_names_the_checkout_and_the_capability(tmp_path: Path) -> None:
     with pytest.raises(StaleRuntimeReposError) as raised:
         require_install_capabilities(tmp_path / "repos")

@@ -26,6 +26,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
+        # ansible-core arrives as its own PR because the pin moves only after a live install (dmfdeploy/dmfdeploy#995).
+        exclude-patterns:
+          - "ansible-core"
     labels:
       - "no-issue"
     commit-message:

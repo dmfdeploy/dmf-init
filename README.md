@@ -230,6 +230,26 @@ docker logs --tail 3 <container>       # copy the fresh open http://localhost:80
 Canonical spec:
 [`DMF Init Bootstrap Container Plan 2026-06-02`](https://github.com/dmfdeploy/dmfdeploy/blob/45eb326e973b10e0b52deef290981ceac9bcf5bd/docs/plans/DMF%20Init%20Bootstrap%20Container%20Plan%202026-06-02.md).
 
+### Run without the container
+
+For a local run, create a virtual environment and install the pinned controller
+ansible-core into it before you start dmf-init:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements-ansible-core.txt .
+```
+
+Start dmf-init with the environment's `bin` directory first on `PATH`:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m dmf_init.main
+```
+
+The `PATH` prefix is what makes `run-playbook.sh` use the pinned
+`ansible-playbook`. The dmf-env check compares its version with the pin in the dmf-infra checkout and
+fails closed when the minor versions differ.
+
 ### Target node
 
 The installer provisions a **node you bring**: an SSH-reachable **Debian, ARM64**
