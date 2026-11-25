@@ -32,15 +32,16 @@ COPY pyproject.toml README.md VERSION ./
 COPY src ./src
 COPY --from=frontend-builder /build/src/dmf_init/static/app ./src/dmf_init/static/app
 
-# ansible-core (not the full `ansible` meta-package, which bundles hundreds of
-# unused community collections ≈436MB). The 3 collections the bootstrap actually
-# calls are installed from requirements-collections.yml below.
-COPY requirements-collections.yml ./
+# The controller's ansible-core is the exact pin in requirements-ansible-core.txt,
+# installed with pip into this image's /usr/local Python. `ansible-playbook` on PATH is
+# that install. It is not the full `ansible` meta-package, which bundles hundreds of
+# unused community collections (about 436MB). The 3 collections the bootstrap actually
+# calls are installed from requirements-collections.yml.
+COPY requirements-ansible-core.txt requirements-collections.yml ./
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       age \
-      ansible-core \
       apache2-utils \
       bind9-dnsutils \
       ca-certificates \
@@ -49,12 +50,21 @@ RUN set -eux; \
       jq \
       openssh-client \
       openssl \
-      python3 \
-      python3-pip \
       unzip; \
-    rm -rf /var/lib/apt/lists/*; \
+    rm -rf /var/lib/apt/lists/*
+
+# The packages named here are pinned to exact versions. Their own dependencies
+# resolve at build time, so a rebuild can pick up newer transitive versions.
+# Dependabot does not track the versions in this command; bump them by hand.
+# The Python libraries that the playbooks and collections import on the controller go
+# into the same /usr/local Python that runs ansible-playbook.
+RUN set -eux; \
+    pip install --no-cache-dir -r requirements-ansible-core.txt \
+      "PyYAML==6.0.4" "jmespath==1.1.0" "netaddr==1.3.0" "passlib==1.7.4" \
+      "jsonpatch==1.48" "kubernetes==37.0.3" "yq==4.4.5"; \
     ansible-galaxy collection install -r requirements-collections.yml \
       -p /usr/share/ansible/collections; \
+    python -c "import jmespath,netaddr,passlib,jsonpatch,kubernetes,yaml; print('yaml', yaml.__version__)"; \
     rm -rf /root/.ansible/tmp /root/.cache
 
 ARG OPENTOFU_VERSION=1.10.3
@@ -107,20 +117,5 @@ RUN set -eux; \
     rm -rf "/tmp/linux-${arch}"
 
 RUN pip install --no-cache-dir .
-
-# The packages named here are pinned to exact versions. Their own dependencies
-# resolve at build time, so a rebuild can pick up newer transitive versions.
-# Dependabot does not track the versions in this command; bump them by hand.
-# Install Ansible controller py-libs into /usr/bin/python3 (3.13 on trixie).
-# Ansible's collections/modules import from /usr/bin/python3, NOT the 3.12
-# /usr/local/bin/python that `pip install .` targets.
-# PyYAML must be installed first with --ignore-installed because trixie ships
-# apt-managed PyYAML 6.0.2 with no pip RECORD, blocking upgrade.
-RUN set -eux; \
-    /usr/bin/python3 -m pip --version; \
-    /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed "PyYAML==6.0.4"; \
-    /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages "jmespath==1.1.0" "netaddr==1.3.0" "passlib==1.7.4" "jsonpatch==1.48" "kubernetes==37.0.3" "yq==4.4.5"; \
-    /usr/bin/python3 -c "import jmespath,netaddr,passlib,jsonpatch,kubernetes,yaml; print('yaml', yaml.__version__)"; \
-    rm -rf /root/.cache
 
 CMD ["python", "-m", "dmf_init.main"]

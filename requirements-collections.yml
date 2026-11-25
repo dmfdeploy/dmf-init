@@ -14,17 +14,21 @@
 # community.docker, ansible.netcommon — none are called as modules by the
 # bootstrap playbooks. Each version is the one the AWX execution environment
 # installs: dmf-infra's k3s-lab-bootstrap/ee/requirements.yml, built with the
-# ansible-core in k3s-lab-bootstrap/requirements-ansible-core.txt (2.21.6 at
-# the time of writing) and tested by dmf-infra's CI.
+# ansible-core in k3s-lab-bootstrap/requirements-ansible-core.txt and tested by
+# dmf-infra's CI.
 #
 # Exact versions keep an image rebuild from changing the collections on its own.
 # Dependabot does not update Galaxy collections; bump these by hand, together
 # with the execution environment's list. The ansible-core that dmf-init itself
-# runs is tracked in dmfdeploy/dmfdeploy#995.
+# runs is the pin in requirements-ansible-core.txt, which matches dmf-infra's pin;
+# dmf-env's run-playbook.sh stops a run when the minor versions differ.
 collections:
   - name: kubernetes.core
-    version: 5.4.3
+    version: 6.6.0
   - name: community.general
-    version: 10.7.9
+    version: 14.0.1
   - name: ansible.posix
-    version: 1.6.2
+    version: 2.2.2
+  # community.general 14 depends on this collection. Pinned so a rebuild cannot drift.
+  - name: community.library_inventory_filtering_v1
+    version: 1.1.5
