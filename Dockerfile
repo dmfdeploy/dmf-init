@@ -68,12 +68,12 @@ RUN set -eux; \
     rm -rf /root/.ansible/tmp /root/.cache
 
 ARG OPENTOFU_VERSION=1.13.9
-ARG SOPS_VERSION=3.10.2
+ARG SOPS_VERSION=3.13.3
 ARG KUBECTL_VERSION=1.33.1
 ARG HELM_VERSION=3.18.4
 
 # Known-good experiment-phase set:
-# opentofu 1.13.9 (cloud lanes), sops 3.10.2, kubectl 1.33.1, helm 3.18.4
+# opentofu 1.13.9 (cloud lanes), sops 3.13.3, kubectl 1.33.1, helm 3.18.4
 #
 # Each download is checked against a pinned SHA-256 before it is used. When you
 # bump a version, replace its checksums from the upstream files named here.
@@ -86,12 +86,12 @@ RUN set -eux; \
     case "$arch" in \
       amd64) \
         tofu_sha=bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce; \
-        sops_sha=79b0f844237bd4b0446e4dc884dbc1765fc7dedc3968f743d5949c6f2e701739; \
+        sops_sha=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b; \
         kubectl_sha=5de4e9f2266738fd112b721265a0c1cd7f4e5208b670f811861f699474a100a3; \
         helm_sha=f8180838c23d7c7d797b208861fecb591d9ce1690d8704ed1e4cb8e2add966c1 ;; \
       arm64) \
         tofu_sha=04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3; \
-        sops_sha=e91ddc04e6a78f5aed9e4fc347a279b539c43b74d99e6b8078e2f2f6f5b309f5; \
+        sops_sha=53b0abacd38ef1b12a66d6c100956691b9cefce018d91f81e73ddf7438b94d77; \
         kubectl_sha=d595d1a26b7444e0beb122e25750ee4524e74414bbde070b672b423139295ce6; \
         helm_sha=c0a45e67eef0c7416a8a8c9e9d5d2d30d70e4f4d3f7bea5de28241fffa8f3b89 ;; \
       *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
