@@ -6,4 +6,3 @@
 
 # CI / GitHub workflows
 /.github/                      @dmfdeploy/maintainers
-/.forgejo/                     @dmfdeploy/maintainers
