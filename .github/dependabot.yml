@@ -13,10 +13,6 @@ updates:
       - "no-issue"
     commit-message:
       prefix: "ci(deps)"
-    # Major upgrades are done on purpose, as their own changes.
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -33,10 +29,6 @@ updates:
       - "no-issue"
     commit-message:
       prefix: "build(deps)"
-    # Major upgrades are done on purpose, as their own changes.
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
@@ -50,10 +42,6 @@ updates:
       - "no-issue"
     commit-message:
       prefix: "build(deps)"
-    # Major upgrades are done on purpose, as their own changes.
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -68,10 +56,7 @@ updates:
     commit-message:
       prefix: "build(deps)"
     # A new Python minor version is a language upgrade done on purpose, tracked
-    # in dmfdeploy/dmfdeploy#982. Major upgrades are done on purpose, as their
-    # own changes.
+    # in dmfdeploy/dmfdeploy#982.
     ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
       - dependency-name: "python"
         update-types: ["version-update:semver-minor"]
