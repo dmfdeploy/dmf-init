@@ -83,7 +83,7 @@ The command does the following, in order:
 
 <!-- install-command:start -->
 ```bash
-version=v0.4.1
+version=v0.4.2
 base="https://github.com/dmfdeploy/dmf-init/releases/download/${version}"
 
 dir="$(mktemp -d)" &&
