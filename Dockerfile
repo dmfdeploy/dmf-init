@@ -70,10 +70,10 @@ RUN set -eux; \
 ARG OPENTOFU_VERSION=1.13.9
 ARG SOPS_VERSION=3.13.3
 ARG KUBECTL_VERSION=1.37.2
-ARG HELM_VERSION=3.22.1
+ARG HELM_VERSION=4.3.2
 
 # Known-good experiment-phase set:
-# opentofu 1.13.9 (cloud lanes), sops 3.13.3, kubectl 1.37.2, helm 3.22.1
+# opentofu 1.13.9 (cloud lanes), sops 3.13.3, kubectl 1.37.2, helm 4.3.2
 #
 # Each download is checked against a pinned SHA-256 before it is used. When you
 # bump a version, replace its checksums from the upstream files named here.
@@ -88,12 +88,12 @@ RUN set -eux; \
         tofu_sha=bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce; \
         sops_sha=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b; \
         kubectl_sha=c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4; \
-        helm_sha=896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea ;; \
+        helm_sha=d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983 ;; \
       arm64) \
         tofu_sha=04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3; \
         sops_sha=53b0abacd38ef1b12a66d6c100956691b9cefce018d91f81e73ddf7438b94d77; \
         kubectl_sha=fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509; \
-        helm_sha=4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d ;; \
+        helm_sha=df31cb61680ef728f82c770e5280dd565617bee6b039d37e85c677288be4bbb0 ;; \
       *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
     fetch() { \
